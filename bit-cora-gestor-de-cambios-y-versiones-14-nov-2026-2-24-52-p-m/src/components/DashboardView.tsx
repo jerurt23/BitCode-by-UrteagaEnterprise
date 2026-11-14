@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, GitBranch, Pencil, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, FolderOpen, GitBranch, Pencil, Plus, Trash2 } from 'lucide-react';
 import { Project, ProjectModule } from '../types/workspace';
 import {
   MODULE_STATUS_LABELS,
@@ -8,6 +8,7 @@ import {
   formatShortDate,
 } from '../utils/projectHelpers';
 import { ProgressLineChart } from './ProgressLineChart';
+import { TrashPanel } from './TrashPanel';
 
 interface DashboardViewProps {
   projects: Project[];
@@ -17,7 +18,10 @@ interface DashboardViewProps {
   onEditProject: (project: Project) => void;
   onCreateModule: () => void;
   onEditModule: (mod: ProjectModule) => void;
+  onCompleteModule: (moduleId: string) => void;
   onDeleteModule: (moduleId: string) => void;
+  onRestoreModule: (trashId: string) => void;
+  onPurgeModule: (trashId: string) => void;
   onOpenModuleInNotebook: (moduleId: string) => void;
 }
 
@@ -29,7 +33,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onEditProject,
   onCreateModule,
   onEditModule,
+  onCompleteModule,
   onDeleteModule,
+  onRestoreModule,
+  onPurgeModule,
   onOpenModuleInNotebook,
 }) => {
   const totalProjects = projects.length;
@@ -88,6 +95,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
       {/* Active Project Detail & Modules Table */}
       {activeProject ? (
+        <>
         <section className="rounded-lg border border-zinc-200 bg-white">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-zinc-200 p-4 sm:p-5">
             <div className="min-w-[240px] flex-1 space-y-1.5">
@@ -238,8 +246,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           </button>
                           <button
                             type="button"
+                            onClick={() => onCompleteModule(mod.id)}
+                            aria-label={`Marcar completado el módulo ${mod.name}`}
+                            title="Marcar completado y mover a la papelera"
+                            className="rounded p-1.5 text-zinc-500 hover:bg-emerald-50 hover:text-emerald-700"
+                          >
+                            <CheckCircle2 className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => onDeleteModule(mod.id)}
-                            aria-label={`Eliminar módulo ${mod.name}`}
+                            aria-label={`Mover módulo ${mod.name} a la papelera`}
+                            title="Mover a la papelera (30 días)"
                             className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -331,8 +349,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                               </button>
                               <button
                                 type="button"
+                                onClick={() => onCompleteModule(mod.id)}
+                                aria-label={`Marcar completado el módulo ${mod.name}`}
+                                title="Marcar completado y mover a la papelera"
+                                className="rounded p-1.5 text-zinc-500 hover:bg-emerald-50 hover:text-emerald-700"
+                              >
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
                                 onClick={() => onDeleteModule(mod.id)}
-                                aria-label={`Eliminar módulo ${mod.name}`}
+                                aria-label={`Mover módulo ${mod.name} a la papelera`}
+                                title="Mover a la papelera (30 días)"
                                 className="rounded p-1.5 text-zinc-500 hover:bg-red-50 hover:text-red-600"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -348,6 +376,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </>
           )}
         </section>
+
+        <TrashPanel
+          project={activeProject}
+          onRestoreModule={onRestoreModule}
+          onPurgeModule={onPurgeModule}
+        />
+        </>
       ) : (
         <div className="rounded-lg border border-zinc-200 bg-white p-10 text-center">
           <p className="text-sm text-zinc-600">No hay proyectos seleccionados.</p>

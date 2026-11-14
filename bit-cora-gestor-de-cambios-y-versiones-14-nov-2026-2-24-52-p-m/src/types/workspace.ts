@@ -20,6 +20,15 @@ export interface ProjectModule {
   updatedAt: string;
 }
 
+export type TrashReason = 'eliminado' | 'completado';
+
+export interface TrashedModule {
+  id: string;
+  module: ProjectModule;
+  reason: TrashReason;
+  trashedAt: string; // ISO timestamp
+}
+
 export interface ProgressPoint {
   date: string; // e.g. '2026-10-01'
   label: string; // e.g. '01 Oct'
@@ -66,6 +75,7 @@ export interface Project {
   priority: Priority;
   tags: string[];
   modules: ProjectModule[];
+  trash?: TrashedModule[];
   progressHistory: ProgressPoint[];
   branches: GitBranchItem[];
   activeBranchId: string;

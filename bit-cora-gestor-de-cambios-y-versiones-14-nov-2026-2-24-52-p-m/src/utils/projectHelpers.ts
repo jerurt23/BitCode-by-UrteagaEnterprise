@@ -1,4 +1,11 @@
-import { ModuleStatus, ProgressPoint, Project, ProjectModule } from '../types/workspace';
+import {
+  ModuleStatus,
+  ProgressPoint,
+  Project,
+  ProjectModule,
+  TrashedModule,
+  TrashReason,
+} from '../types/workspace';
 
 /**
  * Counts assigned/pending items in a module's bloc note.
@@ -129,5 +136,73 @@ export function recalculateProjectWithModules(
     modules,
     progressHistory,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+/* =========================================================
+   Papelera de módulos (retención de 30 días)
+   ========================================================= */
+
+export const TRASH_RETENTION_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export function getProjectTrash(project: Project): TrashedModule[] {
+  return project.trash ?? [];
+}
+
+/** Días completos que quedan antes del borrado definitivo (0 = expirado). */
+export function getTrashDaysLeft(trashedAt: string, nowMs: number = Date.now()): number {
+  const trashedMs = new Date(trashedAt).getTime();
+  if (Number.isNaN(trashedMs)) return 0;
+  const expiresMs = trashedMs + TRASH_RETENTION_DAYS * DAY_MS;
+  return Math.max(0, Math.ceil((expiresMs - nowMs) / DAY_MS));
+}
+
+/** Elimina de la papelera los módulos que ya superaron los 30 días. */
+export function purgeExpiredTrash(project: Project, nowMs: number = Date.now()): Project {
+  const current = getProjectTrash(project);
+  if (current.length === 0) return project;
+  const kept = current.filter((entry) => getTrashDaysLeft(entry.trashedAt, nowMs) > 0);
+  if (kept.length === current.length) return project;
+  return { ...project, trash: kept };
+}
+
+/** Mueve un módulo a la papelera, ya sea por eliminación o por completado. */
+export function moveModuleToTrash(
+  project: Project,
+  moduleId: string,
+  reason: TrashReason,
+  nowIso: string = new Date().toISOString(),
+): Project {
+  const target = project.modules.find((m) => m.id === moduleId);
+  if (!target) return project;
+
+  const entry: TrashedModule = {
+    id: `trash-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    module: target,
+    reason,
+    trashedAt: nowIso,
+  };
+  const remaining = project.modules.filter((m) => m.id !== moduleId);
+  const next = recalculateProjectWithModules(project, remaining);
+  return { ...next, trash: [entry, ...getProjectTrash(project)] };
+}
+
+export function restoreModuleFromTrash(project: Project, trashId: string): Project {
+  const entry = getProjectTrash(project).find((e) => e.id === trashId);
+  if (!entry) return project;
+
+  const restored: ProjectModule = {
+    ...entry.module,
+    updatedAt: new Date().toISOString(),
+  };
+  const next = recalculateProjectWithModules(project, [...project.modules, restored]);
+  return { ...next, trash: getProjectTrash(project).filter((e) => e.id !== trashId) };
+}
+
+export function deleteTrashedModule(project: Project, trashId: string): Project {
+  return {
+    ...project,
+    trash: getProjectTrash(project).filter((e) => e.id !== trashId),
   };
 }

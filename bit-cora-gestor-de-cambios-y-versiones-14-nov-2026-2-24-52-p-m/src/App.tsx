@@ -38,8 +38,12 @@ import {
   PRIORITY_LABELS,
   computeProgressFromBloc,
   computeProjectProgress,
+  deleteTrashedModule,
   deriveStatusFromProgress,
+  moveModuleToTrash,
+  purgeExpiredTrash,
   recalculateProjectWithModules,
+  restoreModuleFromTrash,
 } from './utils/projectHelpers';
 
 const STORAGE_KEY = 'bitacora_projects_v2';
@@ -63,17 +67,21 @@ function loadInitialTheme(): ThemeMode {
   return 'light';
 }
 
+function normalizeProjects(projects: Project[]): Project[] {
+  return projects.map((project) => purgeExpiredTrash({ ...project, trash: project.trash ?? [] }));
+}
+
 function loadInitialProjects(): Project[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return SEED_PROJECTS;
+    if (!raw) return normalizeProjects(SEED_PROJECTS);
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed;
+      return normalizeProjects(parsed as Project[]);
     }
-    return SEED_PROJECTS;
+    return normalizeProjects(SEED_PROJECTS);
   } catch {
-    return SEED_PROJECTS;
+    return normalizeProjects(SEED_PROJECTS);
   }
 }
 
@@ -359,10 +367,26 @@ export default function App() {
 
   const handleDeleteModule = (moduleId: string) => {
     if (!activeProject) return;
-    updateProject(activeProject.id, (prev) => {
-      const nextModules = prev.modules.filter((m) => m.id !== moduleId);
-      return recalculateProjectWithModules(prev, nextModules);
-    });
+    updateProject(activeProject.id, (prev) =>
+      moveModuleToTrash(prev, moduleId, 'eliminado'),
+    );
+  };
+
+  const handleCompleteModule = (moduleId: string) => {
+    if (!activeProject) return;
+    updateProject(activeProject.id, (prev) =>
+      moveModuleToTrash(prev, moduleId, 'completado'),
+    );
+  };
+
+  const handleRestoreModule = (trashId: string) => {
+    if (!activeProject) return;
+    updateProject(activeProject.id, (prev) => restoreModuleFromTrash(prev, trashId));
+  };
+
+  const handlePurgeModule = (trashId: string) => {
+    if (!activeProject) return;
+    updateProject(activeProject.id, (prev) => deleteTrashedModule(prev, trashId));
   };
 
   // --- Notebook, Bloc-Based Progress & Diff Handlers ---
@@ -887,7 +911,10 @@ export default function App() {
                 setEditingModule(mod);
                 setModuleModalOpen(true);
               }}
+              onCompleteModule={handleCompleteModule}
               onDeleteModule={handleDeleteModule}
+              onRestoreModule={handleRestoreModule}
+              onPurgeModule={handlePurgeModule}
               onOpenModuleInNotebook={(moduleId) => {
                 setSelectedModuleId(moduleId);
                 setNotebookInnerTab('editor');
