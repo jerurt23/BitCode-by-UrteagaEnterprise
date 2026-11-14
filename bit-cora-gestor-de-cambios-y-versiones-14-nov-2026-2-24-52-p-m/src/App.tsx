@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery } from 'convex/react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronRight,
@@ -19,6 +20,7 @@ import {
 } from './components/NotebookComparatorView';
 import { ProgressCircle } from './components/ProgressCircle';
 import { ProjectModal } from './components/ProjectModal';
+import { api } from '../convex/_generated/api';
 import { SEED_PROJECTS } from './data/seedProjects';
 import {
   ModuleStatus,
@@ -103,12 +105,20 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(loadInitialTheme);
 
+  // --- Sincronización con Convex ---
+  const remoteProjects = useQuery(api.workspace.get);
+  const saveWorkspace = useMutation(api.workspace.save);
+  const hydratedFromConvex = useRef(false);
+  const lastSyncedPayload = useRef<string | null>(null);
+  const pendingPayload = useRef<string | null>(null);
+
   // Modals
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [moduleModalOpen, setModuleModalOpen] = useState(false);
   const [editingModule, setEditingModule] = useState<ProjectModule | null>(null);
 
+  // Copia local como caché/fallback mientras Convex responde.
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
@@ -116,6 +126,63 @@ export default function App() {
       // Ignore storage quota errors cleanly
     }
   }, [projects]);
+
+  // Sincronización en vivo: cualquier cambio remoto se aplica al instante.
+  useEffect(() => {
+    if (remoteProjects === undefined) return;
+
+    const remote =
+      Array.isArray(remoteProjects) && remoteProjects.length > 0
+        ? normalizeProjects(remoteProjects as Project[])
+        : null;
+
+    // Sin datos remotos: primera carga, subimos lo local como estado inicial.
+    if (!remote) {
+      if (!hydratedFromConvex.current) {
+        hydratedFromConvex.current = true;
+        const local = loadInitialProjects();
+        lastSyncedPayload.current = JSON.stringify(local);
+        saveWorkspace({ projects: local }).catch((error) => {
+          console.warn('No se pudo inicializar el workspace en Convex', error);
+        });
+      }
+      return;
+    }
+
+    const remotePayload = JSON.stringify(remote);
+    // Es el eco de nuestro propio guardado.
+    if (remotePayload === lastSyncedPayload.current) return;
+    // Hay ediciones locales esperando a guardarse: no las pisamos.
+    if (pendingPayload.current !== null) return;
+
+    hydratedFromConvex.current = true;
+    lastSyncedPayload.current = remotePayload;
+    setProjects((prev) => (JSON.stringify(prev) === remotePayload ? prev : remote));
+  }, [remoteProjects, saveWorkspace]);
+
+  // Guardado con debounce cuando cambia el estado local.
+  useEffect(() => {
+    if (!hydratedFromConvex.current) return;
+
+    const payload = JSON.stringify(projects);
+    if (payload === lastSyncedPayload.current) return;
+
+    pendingPayload.current = payload;
+    const timer = setTimeout(() => {
+      saveWorkspace({ projects })
+        .then(() => {
+          lastSyncedPayload.current = payload;
+        })
+        .catch((error) => {
+          console.warn('No se pudo guardar el workspace en Convex', error);
+        })
+        .finally(() => {
+          pendingPayload.current = null;
+        });
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [projects, saveWorkspace]);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', theme === 'dark');
