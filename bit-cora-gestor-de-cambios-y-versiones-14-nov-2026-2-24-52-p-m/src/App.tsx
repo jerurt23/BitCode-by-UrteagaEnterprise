@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, Menu, Plus, Search, Trash2, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  Menu,
+  Moon,
+  Plus,
+  Search,
+  Sun,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { DashboardView } from './components/DashboardView';
 import { GitBranchesView } from './components/GitBranchesView';
 import { ModuleModal } from './components/ModuleModal';
@@ -33,6 +43,25 @@ import {
 } from './utils/projectHelpers';
 
 const STORAGE_KEY = 'bitacora_projects_v2';
+const THEME_KEY = 'bitcode_theme';
+
+type ThemeMode = 'light' | 'dark';
+
+function loadInitialTheme(): ThemeMode {
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    if (stored === 'light' || stored === 'dark') return stored;
+  } catch {
+    // Sin preferencia guardada
+  }
+  if (
+    typeof window !== 'undefined' &&
+    window.matchMedia?.('(prefers-color-scheme: dark)').matches
+  ) {
+    return 'dark';
+  }
+  return 'light';
+}
 
 function loadInitialProjects(): Project[] {
   try {
@@ -64,6 +93,7 @@ export default function App() {
   const [historyCommitId, setHistoryCommitId] = useState<string | null>(null);
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [theme, setTheme] = useState<ThemeMode>(loadInitialTheme);
 
   // Modals
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -78,6 +108,19 @@ export default function App() {
       // Ignore storage quota errors cleanly
     }
   }, [projects]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark');
+    try {
+      localStorage.setItem(THEME_KEY, theme);
+    } catch {
+      // Ignore storage quota errors cleanly
+    }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute('content', theme === 'dark' ? '#0b0b0d' : '#FAF9F6');
+    }
+  }, [theme]);
 
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeProjectId) ?? projects[0] ?? null,
@@ -767,7 +810,22 @@ export default function App() {
             })}
           </nav>
 
-          <div className="shrink-0">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              aria-label={
+                theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'
+              }
+              title={theme === 'dark' ? 'Tema claro' : 'Tema oscuro'}
+              className="inline-flex items-center justify-center rounded-md border border-zinc-200 bg-white p-2 text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900"
+            >
+              {theme === 'dark' ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )}
+            </button>
             <button
               type="button"
               onClick={() => {

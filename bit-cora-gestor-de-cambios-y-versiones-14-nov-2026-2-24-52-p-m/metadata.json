@@ -1,6 +1,5 @@
 {
-  "name": "Bitácora — Gestor de Cambios y Versiones",
+  "name": "BitCode — Gestor de Cambios y Versiones",
   "description": "Gestor de cambios estilo bloc de notas con modo reunión, modo idea, comparador selectivo estilo VS Code, dashboard de progreso y seguimiento visual de ramas Git.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": []
 }

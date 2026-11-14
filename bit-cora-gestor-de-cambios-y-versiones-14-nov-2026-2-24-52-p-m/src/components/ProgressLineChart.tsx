@@ -129,7 +129,7 @@ export const ProgressLineChart: React.FC<ProgressLineChartProps> = ({
                   y1={y}
                   x2={width - padRight}
                   y2={y}
-                  stroke="#E4E4E7"
+                  stroke="var(--grid)"
                   strokeWidth={1}
                   strokeDasharray={tick === 0 ? undefined : '3 3'}
                 />
@@ -157,7 +157,7 @@ export const ProgressLineChart: React.FC<ProgressLineChartProps> = ({
                     y1={padTop}
                     x2={x}
                     y2={height - padBottom}
-                    stroke="#A1A1AA"
+                    stroke="var(--axis)"
                     strokeWidth={1}
                   />
                 )}
@@ -216,7 +216,7 @@ export const ProgressLineChart: React.FC<ProgressLineChartProps> = ({
                       cx={c.x}
                       cy={c.y}
                       r={hoveredDate === c.dateKey ? 5.5 : 4}
-                      fill="#FFFFFF"
+                      fill="var(--point-fill)"
                       stroke={proj.color}
                       strokeWidth={2.25}
                     />

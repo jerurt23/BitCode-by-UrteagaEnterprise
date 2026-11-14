@@ -7,7 +7,7 @@ import { ModuleStatus, ProgressPoint, Project, ProjectModule } from '../types/wo
  */
 export function countBlocAssignedItems(noteText: string): number {
   if (!noteText || !noteText.trim()) return 0;
-  const lines = noteText.replace(/\r\n/g, '\n').split('\n');
+  const lines = String(noteText).replace(/\r\n/g, '\n').split('\n');
   let count = 0;
   for (const raw of lines) {
     const line = raw.trim();
@@ -20,9 +20,11 @@ export function countBlocAssignedItems(noteText: string): number {
     ) {
       continue;
     }
+    // Strip a leading bullet/number/alpha/roman marker, then an optional checkbox
+    // marker, so empty bullets and empty checkboxes are ignored.
     const contentOnly = line
       .replace(
-        /^(?:[-*•◦▪▸–]|\d+(?:\.\d+)*\.|[a-z]\)|[ivxlcdm]+\)|\[\s\])\s*/i,
+        /^(?:(?:[-*•◦▪▸–]|\d+(?:\.\d+)*\.|[a-z]\)|[ivxlcdm]+\))\s*)?(?:\[\s?\])?\s*/i,
         '',
       )
       .trim();
@@ -38,6 +40,7 @@ export function countBlocAssignedItems(noteText: string): number {
  * - Each pending item reduces remaining completion down to a 5% minimum floor
  */
 export function computeProgressFromBloc(noteText: string): number {
+  if (!noteText || !String(noteText).trim()) return 100;
   const assigned = countBlocAssignedItems(noteText);
   if (assigned === 0) return 100;
   return Math.max(5, Math.round(100 - assigned * 12));

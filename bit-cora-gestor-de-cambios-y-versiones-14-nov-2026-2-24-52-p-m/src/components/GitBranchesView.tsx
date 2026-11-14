@@ -36,6 +36,7 @@ const BRANCH_COLORS = [
   { hex: '#D97706', label: 'Ámbar' },
   { hex: '#7C3AED', label: 'Violeta' },
   { hex: '#DB2777', label: 'Rosa' },
+  { hex: '#059669', label: 'Esmeralda' },
 ];
 
 export const GitBranchesView: React.FC<GitBranchesViewProps> = ({
