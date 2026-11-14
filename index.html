@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BitCode — Gestor de Cambios y Versiones</title>
+    <meta name="description" content="Gestor de cambios estilo bloc de notas con modo reunión, modo idea, comparador selectivo estilo VS Code, dashboard de progreso y seguimiento visual de ramas Git." />
+    <meta property="og:title" content="BitCode — Gestor de Cambios y Versiones" />
+    <meta property="og:description" content="Gestor de cambios estilo bloc de notas con modo reunión, modo idea, comparador selectivo estilo VS Code, dashboard de progreso y seguimiento visual de ramas Git." />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#FAF9F6" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@500;600;700&family=Public+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <script>
+      try {
+        var storedTheme = localStorage.getItem('bitcode_theme');
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        if (storedTheme === 'dark' || (!storedTheme && prefersDark)) {
+          document.documentElement.classList.add('dark');
+        }
+      } catch (e) {
+        /* sin preferencia guardada */
+      }
+    </script>
+    <script type="module" crossorigin src="/BitCode-by-UrteagaEnterprise/assets/index-4Jv6xaDV.js"></script>
+    <link rel="stylesheet" crossorigin href="/BitCode-by-UrteagaEnterprise/assets/index-BviBpYX5.css">
+  </head>
+  <body class="bg-[#FAF9F6] text-zinc-900 antialiased selection:bg-blue-100 selection:text-blue-900">
+    <div id="root"></div>
+  </body>
+</html>
