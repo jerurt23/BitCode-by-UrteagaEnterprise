@@ -24,6 +24,7 @@ import {
 } from './components/NotebookComparatorView';
 import { ProgressCircle } from './components/ProgressCircle';
 import { ProjectModal } from './components/ProjectModal';
+import { SettingsView } from './components/SettingsView';
 import { api } from '../convex/_generated/api';
 import { SEED_PROJECTS } from './data/seedProjects';
 import {
@@ -47,6 +48,7 @@ import {
   requestPersistentStorage,
   saveLocalDataFile,
 } from './utils/localDataFile';
+import { getDeviceId } from './utils/device';
 import {
   PRIORITY_LABELS,
   computeProgressFromBloc,
@@ -94,7 +96,8 @@ function loadInitialProjects(): Project[] {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return normalizeProjects(SEED_PROJECTS);
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
+    if (Array.isArray(parsed)) {
+      // Un arreglo vacío es válido: significa "empezar desde cero".
       return normalizeProjects(parsed as Project[]);
     }
     return normalizeProjects(SEED_PROJECTS);
@@ -147,6 +150,8 @@ export default function App() {
   // --- Sincronización con Convex ---
   const remoteProjects = useQuery(api.workspace.get);
   const saveWorkspace = useMutation(api.workspace.save);
+  const resetWorkspace = useMutation(api.workspace.reset);
+  const deviceId = useMemo(getDeviceId, []);
   const hydratedFromConvex = useRef(false);
   const lastSyncedPayload = useRef<string | null>(null);
   const pendingPayload = useRef<string | null>(null);
@@ -170,24 +175,21 @@ export default function App() {
   useEffect(() => {
     if (remoteProjects === undefined) return;
 
-    const remote =
-      Array.isArray(remoteProjects) && remoteProjects.length > 0
-        ? normalizeProjects(remoteProjects as Project[])
-        : null;
-
-    // Sin datos remotos: primera carga, subimos lo local como estado inicial.
-    if (!remote) {
+    // null significa que todavía no existe el documento en Convex (primer uso).
+    if (remoteProjects === null) {
       if (!hydratedFromConvex.current) {
         hydratedFromConvex.current = true;
         const local = loadInitialProjects();
         lastSyncedPayload.current = JSON.stringify(local);
-        saveWorkspace({ projects: local }).catch((error) => {
+        saveWorkspace({ projects: local, deviceId }).catch((error) => {
           console.warn('No se pudo inicializar el workspace en Convex', error);
         });
       }
       return;
     }
 
+    // Un arreglo vacío es un espacio de trabajo reiniciado, no "sin datos".
+    const remote = normalizeProjects(remoteProjects as Project[]);
     const remotePayload = JSON.stringify(remote);
     // Es el eco de nuestro propio guardado.
     if (remotePayload === lastSyncedPayload.current) return;
@@ -197,7 +199,7 @@ export default function App() {
     hydratedFromConvex.current = true;
     lastSyncedPayload.current = remotePayload;
     setProjects((prev) => (JSON.stringify(prev) === remotePayload ? prev : remote));
-  }, [remoteProjects, saveWorkspace]);
+  }, [remoteProjects, saveWorkspace, deviceId]);
 
   // Guardado con debounce cuando cambia el estado local.
   useEffect(() => {
@@ -208,7 +210,7 @@ export default function App() {
 
     pendingPayload.current = payload;
     const timer = setTimeout(() => {
-      saveWorkspace({ projects })
+      saveWorkspace({ projects, deviceId })
         .then(() => {
           lastSyncedPayload.current = payload;
         })
@@ -332,6 +334,32 @@ export default function App() {
     if (choice.outcome === 'accepted') {
       showDataNotice('ok', 'BitCode instalado en tu teléfono.');
     }
+  };
+
+  const handleResetAll = async () => {
+    await resetWorkspace({});
+
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Sin almacenamiento disponible.
+    }
+
+    hydratedFromConvex.current = true;
+    lastSyncedPayload.current = '[]';
+    pendingPayload.current = null;
+    setProjects([]);
+    setActiveProjectId('');
+    setExpandedProjectIds(new Set());
+    setSelectedModuleId(null);
+    setProjectModalOpen(false);
+    setEditingProject(null);
+    setModuleModalOpen(false);
+    setEditingModule(null);
+    setActiveSection('settings');
+
+    // Deja el archivo local vacío para que no reaparezcan los datos al abrir.
+    await saveLocalDataFile([]);
   };
 
   const activeProject = useMemo(
@@ -802,6 +830,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard' },
     { id: 'notebook', label: 'Bloc y Comparador' },
     { id: 'branches', label: 'Ramas Git' },
+    { id: 'settings', label: 'Configuración' },
   ];
 
   const sidebarContent = (
@@ -1096,7 +1125,11 @@ export default function App() {
               <Menu className="h-4 w-4" />
             </button>
             <span className="truncate font-display text-sm font-semibold text-zinc-900 whitespace-nowrap">
-              {activeProject ? activeProject.name : 'Espacio de trabajo'}
+              {activeSection === 'settings'
+                ? 'Configuración'
+                : activeProject
+                  ? activeProject.name
+                  : 'Espacio de trabajo'}
             </span>
           </div>
 
@@ -1156,7 +1189,7 @@ export default function App() {
         {/* Mobile Secondary Section Switcher */}
         <nav
           aria-label="Navegación móvil"
-          className="grid grid-cols-[1fr_1.45fr_1fr] gap-1 border-b border-zinc-200 bg-white px-2 py-1.5 md:hidden"
+          className="grid grid-cols-4 gap-1 border-b border-zinc-200 bg-white px-2 py-1.5 md:hidden"
         >
           {navItems.map((item) => {
             const active = activeSection === item.id;
@@ -1165,7 +1198,7 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveSection(item.id)}
-                className={`rounded-md px-1.5 py-1.5 text-center text-[11px] font-medium whitespace-nowrap ${
+                className={`rounded-md px-1 py-1.5 text-center text-[10px] font-medium leading-tight ${
                   active
                     ? 'bg-zinc-900 text-white'
                     : 'text-zinc-600 hover:bg-zinc-100'
@@ -1249,6 +1282,10 @@ export default function App() {
                 setActiveSection('notebook');
               }}
             />
+          )}
+
+          {activeSection === 'settings' && (
+            <SettingsView projects={projects} onResetAll={handleResetAll} />
           )}
         </main>
       </div>

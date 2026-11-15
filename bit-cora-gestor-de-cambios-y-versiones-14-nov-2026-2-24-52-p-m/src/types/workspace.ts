@@ -4,7 +4,13 @@ export type ModuleStatus = 'pendiente' | 'en_progreso' | 'en_revision' | 'comple
 
 export type NoteCaptureMode = 'actual' | 'reunion' | 'idea';
 
-export type WorkspaceSection = 'dashboard' | 'notebook' | 'branches';
+export type WorkspaceSection = 'dashboard' | 'notebook' | 'branches' | 'settings';
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  color: string;
+}
 
 export interface ProjectModule {
   id: string;

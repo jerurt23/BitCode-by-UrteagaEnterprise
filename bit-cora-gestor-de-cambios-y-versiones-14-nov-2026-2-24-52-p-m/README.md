@@ -19,6 +19,30 @@ This contains everything you need to run your app locally.
 Projects live in Convex, so changes sync live across tabs and devices. `localStorage`
 is kept only as an offline cache; on first run the app uploads existing local data.
 
+Convex ya es la forma gratuita de sincronizar en vivo: su plan Free incluye
+1 millón de llamadas a funciones al mes y 0.5 GB de base de datos, sin límite de
+tiempo. Cada cambio se escribe en la nube y los demás dispositivos reciben la
+actualización por WebSocket sin recargar (el mismo mecanismo que usan las
+consultas reactivas de `useQuery`). No hace falta Firebase, Supabase ni otro
+servicio.
+
+## Configuración
+
+La pestaña **Configuración** incluye:
+
+- **Mi perfil** (nombre, correo y color del avatar), guardado en Convex y
+  compartido entre dispositivos.
+- **Notificaciones por módulo**: activa las notificaciones push en cada
+  dispositivo y elige qué módulos avisan cuando cambian. Incluye recordatorios
+  diarios de fecha límite y un botón de notificación de prueba.
+- **Empezar desde cero**: borra proyectos, módulos, notas, ramas, historial y
+  perfil en todos los dispositivos (pide escribir `BORRAR`).
+
+Las notificaciones push usan VAPID + `web-push` en una acción Node de Convex.
+Variables necesarias en el deployment de Convex:
+`VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` y `VAPID_SUBJECT`. En iPhone requieren
+iOS 16.4+ y la PWA instalada en la pantalla de inicio.
+
 ## Datos locales en el teléfono
 
 - La app es una PWA: ábrela en el navegador del teléfono y usa
@@ -41,5 +65,8 @@ is kept only as an offline cache; on first run the app uploads existing local da
 
 - Backend: `npx convex deploy` creates/updates the production deployment of your
   Convex account. Copy the resulting `https://<name>.convex.cloud` URL.
-- Frontend: deploy the `dist` folder to Vercel (`npm run build`, output `dist`) and
-  set `VITE_CONVEX_URL` to the production Convex URL in the Vercel project settings.
+- Frontend (Vercel): `vercel --prod` desde esta carpeta. El proyecto ya tiene
+  `VITE_CONVEX_URL` configurada para production/preview/development.
+  URL: https://bitcode-rho.vercel.app
+- Frontend (GitHub Pages): `npm run build:pages` y publica `dist` en `gh-pages`.
+  URL: https://jerurt23.github.io/BitCode-by-UrteagaEnterprise/
