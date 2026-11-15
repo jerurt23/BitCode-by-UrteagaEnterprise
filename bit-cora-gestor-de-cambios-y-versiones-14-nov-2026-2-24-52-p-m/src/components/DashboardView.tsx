@@ -1,5 +1,13 @@
 import React from 'react';
-import { CheckCircle2, FolderOpen, GitBranch, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  CheckCircle2,
+  FolderOpen,
+  GitBranch,
+  ListChecks,
+  Pencil,
+  Plus,
+  Trash2,
+} from 'lucide-react';
 import { Project, ProjectModule } from '../types/workspace';
 import {
   MODULE_STATUS_LABELS,
@@ -92,6 +100,92 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         activeProjectId={activeProject?.id ?? ''}
         onSelectProject={onSelectProject}
       />
+
+      {/* Todos los proyectos: porcentaje de avance de cada módulo */}
+      {projects.length > 0 && (
+        <section
+          aria-label="Avance de módulos por proyecto"
+          className="rounded-lg border border-zinc-200 bg-white"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3.5 sm:px-5">
+            <div className="flex items-center gap-2">
+              <ListChecks className="h-4 w-4 text-zinc-500" />
+              <h2 className="text-sm font-semibold text-zinc-900">
+                Avance de módulos por proyecto
+              </h2>
+            </div>
+            <span className="text-[11px] text-zinc-500">
+              Toca un módulo para abrir su bloc
+            </span>
+          </div>
+
+          <div className="grid gap-px bg-zinc-200 sm:grid-cols-2">
+            {projects.map((project) => {
+              const projectPct = computeProjectProgress(project.modules);
+              return (
+                <div key={project.id} className="bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectProject(project.id)}
+                      className="group flex min-w-0 items-center gap-2 text-left"
+                      title={`Seleccionar ${project.name}`}
+                    >
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-sm"
+                        style={{ backgroundColor: project.color }}
+                      />
+                      <span className="truncate text-sm font-semibold text-zinc-900 group-hover:text-blue-700">
+                        {project.name}
+                      </span>
+                    </button>
+                    <span className="shrink-0 font-mono text-xs font-semibold text-zinc-900 tabular-nums">
+                      {projectPct}%
+                    </span>
+                  </div>
+
+                  {project.modules.length === 0 ? (
+                    <p className="text-[11px] text-zinc-400">
+                      Este proyecto todavía no tiene módulos.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2.5">
+                      {project.modules.map((mod) => (
+                        <li key={mod.id}>
+                          <button
+                            type="button"
+                            onClick={() => onOpenModuleInNotebook(mod.id)}
+                            className="group block w-full text-left"
+                            title={`Abrir ${mod.name} en el bloc`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate text-xs text-zinc-700 group-hover:text-blue-700">
+                                {mod.name}
+                              </span>
+                              <span className="shrink-0 font-mono text-[11px] font-medium text-zinc-900 tabular-nums">
+                                {mod.progress}%
+                              </span>
+                            </div>
+                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-zinc-200">
+                              <div
+                                className="h-full transition-all"
+                                style={{
+                                  width: `${Math.max(0, Math.min(100, mod.progress))}%`,
+                                  backgroundColor: project.color,
+                                }}
+                              />
+                            </div>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Active Project Detail & Modules Table */}
       {activeProject ? (

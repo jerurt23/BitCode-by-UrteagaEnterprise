@@ -726,6 +726,130 @@ export default function App() {
     });
   };
 
+  /**
+   * Envía las notas seleccionadas de una reunión a otro módulo existente.
+   * Devuelve cuántas líneas nuevas se añadieron (0 si ya existían).
+   */
+  const handleSendNotesToModule = (params: {
+    sourceModuleId: string;
+    targetModuleId: string;
+    mode: 'reunion' | 'idea';
+    lines: string[];
+    commitMessage: string;
+  }): number => {
+    if (!activeProject) return 0;
+    const target = activeProject.modules.find(
+      (m) => m.id === params.targetModuleId,
+    );
+    if (!target) return 0;
+
+    const seen = new Set(
+      target.currentNote.split('\n').map((line) => line.trim()),
+    );
+    const incoming: string[] = [];
+    for (const rawLine of params.lines) {
+      // Se conserva la sangría (sub-viñetas), solo se recorta el final.
+      const line = rawLine.replace(/\s+$/, '');
+      const key = line.trim();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      incoming.push(line);
+    }
+    if (incoming.length === 0) return 0;
+
+    const addition = incoming.join('\n');
+    const afterText = target.currentNote.trim()
+      ? `${target.currentNote.trimEnd()}\n${addition}`
+      : addition;
+    const nextProgress = computeProgressFromBloc(afterText);
+
+    updateProject(activeProject.id, (prev) => {
+      const updatedModules = prev.modules.map((m) =>
+        m.id === target.id
+          ? {
+              ...m,
+              currentNote: afterText,
+              progress: nextProgress,
+              status: deriveStatusFromProgress(nextProgress, m.status),
+              updatedAt: new Date().toISOString(),
+            }
+          : m,
+      );
+      const updatedProj = recalculateProjectWithModules(prev, updatedModules);
+      return commitProjectChange(updatedProj, {
+        moduleId: target.id,
+        moduleName: target.name,
+        message: params.commitMessage,
+        mode: params.mode,
+        beforeText: target.currentNote,
+        afterText,
+        branchId: target.branchId ?? prev.activeBranchId,
+      }).project;
+    });
+
+    return incoming.length;
+  };
+
+  /**
+   * Crea un módulo nuevo con las notas seleccionadas en la reunión.
+   * Devuelve el módulo creado (o null si faltan datos).
+   */
+  const handleCreateModuleFromNotes = (params: {
+    sourceModuleId: string;
+    name: string;
+    mode: 'reunion' | 'idea';
+    lines: string[];
+    commitMessage: string;
+  }): ProjectModule | null => {
+    if (!activeProject) return null;
+    const name = params.name.trim();
+    const note = params.lines
+      .map((line) => line.replace(/\s+$/, ''))
+      .filter((line) => line.trim().length > 0)
+      .join('\n');
+    if (!name || !note) return null;
+
+    const now = new Date().toISOString();
+    const deadlineDate = new Date(now);
+    deadlineDate.setDate(deadlineDate.getDate() + 30);
+
+    const source = activeProject.modules.find(
+      (m) => m.id === params.sourceModuleId,
+    );
+    const branchId = source?.branchId ?? activeProject.activeBranchId;
+    const created: ProjectModule = {
+      id: `mod-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      name,
+      description: 'Módulo creado desde Modo Reunión con notas seleccionadas.',
+      deadline: deadlineDate.toISOString().slice(0, 10),
+      progress: computeProgressFromBloc(note),
+      status: 'en_progreso',
+      branchId,
+      currentNote: note,
+      meetingNote: note,
+      ideaNote: '',
+      updatedAt: now,
+    };
+
+    updateProject(activeProject.id, (prev) => {
+      const withModule = recalculateProjectWithModules(prev, [
+        ...prev.modules,
+        created,
+      ]);
+      return commitProjectChange(withModule, {
+        moduleId: created.id,
+        moduleName: created.name,
+        message: params.commitMessage,
+        mode: params.mode,
+        beforeText: '',
+        afterText: note,
+        branchId,
+      }).project;
+    });
+
+    return created;
+  };
+
   const handleCommitManualSnapshot = (params: {
     moduleId: string;
     beforeText: string;
@@ -1262,6 +1386,8 @@ export default function App() {
               onSetModuleProgress={handleSetModuleProgress}
               onAssignModuleBranch={handleAssignModuleBranch}
               onApplySelectiveChanges={handleApplySelectiveChanges}
+              onSendNotesToModule={handleSendNotesToModule}
+              onCreateModuleFromNotes={handleCreateModuleFromNotes}
               onCommitManualSnapshot={handleCommitManualSnapshot}
               onSwitchBranch={handleSwitchBranch}
             />

@@ -11,6 +11,7 @@ import {
   Plus,
   RotateCcw,
   Save,
+  Send,
   Square,
   Users,
 } from 'lucide-react';
@@ -55,6 +56,20 @@ interface NotebookComparatorViewProps {
     afterText: string;
     commitMessage: string;
   }) => void;
+  onSendNotesToModule: (params: {
+    sourceModuleId: string;
+    targetModuleId: string;
+    mode: 'reunion' | 'idea';
+    lines: string[];
+    commitMessage: string;
+  }) => number;
+  onCreateModuleFromNotes: (params: {
+    sourceModuleId: string;
+    name: string;
+    mode: 'reunion' | 'idea';
+    lines: string[];
+    commitMessage: string;
+  }) => ProjectModule | null;
   onCommitManualSnapshot: (params: {
     moduleId: string;
     beforeText: string;
@@ -77,6 +92,8 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   onSetModuleProgress,
   onAssignModuleBranch,
   onApplySelectiveChanges,
+  onSendNotesToModule,
+  onCreateModuleFromNotes,
   onCommitManualSnapshot,
   onSwitchBranch,
 }) => {
@@ -95,11 +112,15 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   const [commitMessage, setCommitMessage] = useState('');
   const [lastSavedNotice, setLastSavedNotice] = useState<string | null>(null);
   const [baselineSnapshot, setBaselineSnapshot] = useState<string>('');
+  const [destinationModuleId, setDestinationModuleId] = useState<string>('source');
+  const [newModuleName, setNewModuleName] = useState('');
 
   useEffect(() => {
     if (activeModule) {
       setBaselineSnapshot(activeModule.currentNote);
     }
+    setDestinationModuleId('source');
+    setNewModuleName('');
   }, [activeModule?.id]);
 
   const handleSelectMode = (mode: NoteCaptureMode) => {
@@ -161,6 +182,13 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
   const diffStats = useMemo(() => countDiffStats(diffRows), [diffRows]);
   const totalChanges = diffStats.replaced + diffStats.removed + diffStats.added;
+  const selectedIncomingLines = useMemo(
+    () =>
+      diffRows
+        .filter((row) => selectedRowIds.has(row.id) && row.rightText !== null)
+        .map((row) => row.rightText as string),
+    [diffRows, selectedRowIds],
+  );
 
   useEffect(() => {
     const allChangeIds = new Set(
@@ -193,31 +221,110 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
   const handleApplyChecked = () => {
     if (!activeModule) return;
-    const beforeText = activeModule.currentNote;
-    const afterText = applySelectedDiffChanges(diffRows, selectedRowIds);
-    if (beforeText === afterText) {
-      setLastSavedNotice('No hay cambios seleccionados para aplicar.');
+    const modeLabel =
+      compareSideMode === 'reunion' ? 'Modo Reunión' : 'Modo Idea';
+
+    // 1) Aplicar sobre el módulo actual (comportamiento de siempre).
+    if (destinationModuleId === 'source') {
+      const beforeText = activeModule.currentNote;
+      const afterText = applySelectedDiffChanges(diffRows, selectedRowIds);
+      if (beforeText === afterText) {
+        setLastSavedNotice('No hay cambios seleccionados para aplicar.');
+        return;
+      }
+
+      const defaultMsg = `Aplicar acuerdos de ${modeLabel} en ${activeModule.name}`;
+      onApplySelectiveChanges({
+        moduleId: activeModule.id,
+        mode: compareSideMode,
+        beforeText,
+        afterText,
+        commitMessage: commitMessage.trim() || defaultMsg,
+      });
+
+      setBaselineSnapshot(afterText);
+      setCommitMessage('');
+      setSelectedRowIds(new Set());
+      setLastSavedNotice(
+        `Cambios aplicados en "${activeModule.name}" y registrados en rama ${activeBranch?.name ?? 'main'}. Puedes seguir enviando notas a otros módulos.`,
+      );
       return;
     }
 
-    const defaultMsg =
-      compareSideMode === 'reunion'
-        ? `Aplicar acuerdos de Modo Reunión en ${activeModule.name}`
-        : `Aplicar propuestas de Modo Idea en ${activeModule.name}`;
+    // 2) Crear un módulo nuevo con las notas seleccionadas.
+    if (destinationModuleId === 'new') {
+      const name = newModuleName.trim();
+      if (!name) {
+        setLastSavedNotice('Escribe el nombre del nuevo módulo.');
+        return;
+      }
+      if (selectedIncomingLines.length === 0) {
+        setLastSavedNotice(
+          'Selecciona notas nuevas de la propuesta para llevarlas al módulo nuevo.',
+        );
+        return;
+      }
 
-    onApplySelectiveChanges({
-      moduleId: activeModule.id,
+      const created = onCreateModuleFromNotes({
+        sourceModuleId: activeModule.id,
+        name,
+        mode: compareSideMode,
+        lines: selectedIncomingLines,
+        commitMessage:
+          commitMessage.trim() ||
+          `Notas de ${modeLabel} → nuevo módulo ${name}`,
+      });
+
+      if (!created) {
+        setLastSavedNotice('No se pudo crear el módulo con esas notas.');
+        return;
+      }
+
+      setSelectedRowIds(new Set());
+      setCommitMessage('');
+      setNewModuleName('');
+      setDestinationModuleId('source');
+      setLastSavedNotice(
+        `Módulo "${created.name}" creado con ${selectedIncomingLines.length} nota(s) de ${modeLabel}.`,
+      );
+      return;
+    }
+
+    // 3) Enviar las notas seleccionadas a otro módulo existente.
+    const target = project.modules.find((m) => m.id === destinationModuleId);
+    if (!target) {
+      setLastSavedNotice('El módulo de destino ya no existe.');
+      setDestinationModuleId('source');
+      return;
+    }
+    if (selectedIncomingLines.length === 0) {
+      setLastSavedNotice(
+        'Selecciona notas nuevas de la propuesta para enviarlas a otro módulo.',
+      );
+      return;
+    }
+
+    const added = onSendNotesToModule({
+      sourceModuleId: activeModule.id,
+      targetModuleId: target.id,
       mode: compareSideMode,
-      beforeText,
-      afterText,
-      commitMessage: commitMessage.trim() || defaultMsg,
+      lines: selectedIncomingLines,
+      commitMessage:
+        commitMessage.trim() ||
+        `Notas de ${modeLabel} → ${target.name}`,
     });
 
-    setBaselineSnapshot(afterText);
+    if (added === 0) {
+      setLastSavedNotice(
+        `Esas notas ya existen en "${target.name}". No se duplicaron.`,
+      );
+      return;
+    }
+
+    setSelectedRowIds(new Set());
     setCommitMessage('');
-    setLayoutMode('dual');
     setLastSavedNotice(
-      `Cambios aplicados en "${activeModule.name}" y registrados en rama ${activeBranch?.name ?? 'main'}.`,
+      `${added} nota(s) de ${modeLabel} enviadas a "${target.name}" y registradas en su rama.`,
     );
   };
 
@@ -660,25 +767,86 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                   </div>
                 </div>
 
-                <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-                  <input
-                    type="text"
-                    value={commitMessage}
-                    onChange={(e) => setCommitMessage(e.target.value)}
-                    aria-label="Mensaje de cambio para el historial"
-                    placeholder={`Mensaje de commit (${compareSideMode === 'reunion' ? 'Reunión' : 'Idea'})...`}
-                    className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-64"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleApplyChecked}
-                    disabled={selectedRowIds.size === 0 || totalChanges === 0}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300 whitespace-nowrap shrink-0"
-                  >
-                    <Check className="h-3.5 w-3.5" />
-                    Aplicar marcados ({selectedRowIds.size})
-                  </button>
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label
+                      htmlFor="meeting-destination"
+                      className="text-[10px] font-medium text-zinc-500"
+                    >
+                      Aplicar a
+                    </label>
+                    <select
+                      id="meeting-destination"
+                      value={destinationModuleId}
+                      onChange={(e) => setDestinationModuleId(e.target.value)}
+                      className="max-w-[220px] rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none"
+                    >
+                      <option value="source">
+                        Módulo actual: {activeModule?.name ?? ''}
+                      </option>
+                      {project.modules
+                        .filter((mod) => mod.id !== activeModule?.id)
+                        .map((mod) => (
+                          <option key={mod.id} value={mod.id}>
+                            {mod.name}
+                          </option>
+                        ))}
+                      <option value="new">+ Nuevo módulo…</option>
+                    </select>
+
+                    {destinationModuleId === 'new' && (
+                      <input
+                        type="text"
+                        value={newModuleName}
+                        onChange={(e) => setNewModuleName(e.target.value)}
+                        aria-label="Nombre del nuevo módulo"
+                        placeholder="Nombre del nuevo módulo"
+                        className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-44"
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type="text"
+                      value={commitMessage}
+                      onChange={(e) => setCommitMessage(e.target.value)}
+                      aria-label="Mensaje de cambio para el historial"
+                      placeholder={`Mensaje de commit (${compareSideMode === 'reunion' ? 'Reunión' : 'Idea'})...`}
+                      className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-64"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyChecked}
+                      disabled={
+                        selectedRowIds.size === 0 ||
+                        totalChanges === 0 ||
+                        (destinationModuleId === 'new' &&
+                          !newModuleName.trim())
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300 whitespace-nowrap shrink-0"
+                    >
+                      {destinationModuleId === 'source' ? (
+                        <Check className="h-3.5 w-3.5" />
+                      ) : (
+                        <Send className="h-3.5 w-3.5" />
+                      )}
+                      {destinationModuleId === 'source'
+                        ? `Aplicar marcados (${selectedRowIds.size})`
+                        : destinationModuleId === 'new'
+                          ? `Crear módulo (${selectedRowIds.size})`
+                          : `Enviar notas (${selectedRowIds.size})`}
+                    </button>
+                  </div>
                 </div>
+              </div>
+
+              <div className="rounded-md border border-blue-100 bg-blue-50/70 px-3 py-2 text-[11px] leading-relaxed text-blue-900">
+                <strong>Reunión con varios temas:</strong> marca las notas de un
+                tema, elige su módulo de destino y pulsa el botón. Repite con
+                cada tema, o elige <em>+ Nuevo módulo</em> para crear uno con
+                las notas seleccionadas. Las notas enviadas a otros módulos no
+                se aplican al módulo actual.
               </div>
 
               <SplitDiffViewer

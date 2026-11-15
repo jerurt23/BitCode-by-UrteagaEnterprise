@@ -26,6 +26,15 @@ actualización por WebSocket sin recargar (el mismo mecanismo que usan las
 consultas reactivas de `useQuery`). No hace falta Firebase, Supabase ni otro
 servicio.
 
+## Dashboard y Modo Reunión
+
+- El dashboard incluye **Avance de módulos por proyecto**: todos los proyectos
+  con el porcentaje de cada módulo, barras de progreso y acceso directo al bloc.
+- Al terminar una reunión o sesión de ideas, el comparador permite **enviar las
+  notas seleccionadas a otro módulo del proyecto** o **crear un módulo nuevo**
+  con esas notas (nombre, rama del módulo origen y fecha límite a 30 días).
+  Así una sola reunión puede repartirse entre varios módulos sin duplicar notas.
+
 ## Configuración
 
 La pestaña **Configuración** incluye:
