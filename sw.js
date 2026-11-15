@@ -1,5 +1,5 @@
 /* Service worker de BitCode: app instalable y disponible sin conexión. */
-const CACHE_NAME = 'bitcode-shell-v1';
+const CACHE_NAME = 'bitcode-shell-v2';
 const SCOPE_URL = new URL('./', self.location).href;
 
 self.addEventListener('install', (event) => {
@@ -23,6 +23,51 @@ self.addEventListener('activate', (event) => {
         keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key)),
       );
       await self.clients.claim();
+    })(),
+  );
+});
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = {};
+  }
+
+  const iconUrl = new URL('./icon-192.png', self.registration.scope).href;
+  const targetUrl = new URL(payload.url || './', self.registration.scope).href;
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title || 'BitCode', {
+      body: payload.body || 'Tienes una actualización en BitCode.',
+      icon: iconUrl,
+      badge: iconUrl,
+      tag: payload.tag,
+      data: { url: targetUrl },
+    }),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl =
+    event.notification.data?.url || self.registration.scope;
+
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({
+        type: 'window',
+        includeUncontrolled: true,
+      });
+      for (const client of windows) {
+        if (client.url.startsWith(self.registration.scope) && 'focus' in client) {
+          await client.focus();
+          if ('navigate' in client) await client.navigate(targetUrl);
+          return;
+        }
+      }
+      await self.clients.openWindow(targetUrl);
     })(),
   );
 });
