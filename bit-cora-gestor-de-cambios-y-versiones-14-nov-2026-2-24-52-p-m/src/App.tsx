@@ -950,11 +950,15 @@ export default function App() {
     );
   };
 
-  const navItems: Array<{ id: WorkspaceSection; label: string }> = [
-    { id: 'dashboard', label: 'Dashboard' },
-    { id: 'notebook', label: 'Bloc y Comparador' },
-    { id: 'branches', label: 'Ramas Git' },
-    { id: 'settings', label: 'Configuración' },
+  const navItems: Array<{
+    id: WorkspaceSection;
+    label: string;
+    mobileLabel: string;
+  }> = [
+    { id: 'dashboard', label: 'Dashboard', mobileLabel: 'Inicio' },
+    { id: 'notebook', label: 'Bloc y Comparador', mobileLabel: 'Bloc' },
+    { id: 'branches', label: 'Ramas Git', mobileLabel: 'Ramas' },
+    { id: 'settings', label: 'Configuración', mobileLabel: 'Ajustes' },
   ];
 
   const sidebarContent = (
@@ -1094,7 +1098,10 @@ export default function App() {
                           const isSelectedMod =
                             isActive && selectedModuleId === mod.id;
                           return (
-                            <li key={mod.id}>
+                            <li
+                              key={mod.id}
+                              className="group/mod flex items-center gap-0.5"
+                            >
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1104,7 +1111,7 @@ export default function App() {
                                   setNotebookInnerTab('editor');
                                   setMobileMenuOpen(false);
                                 }}
-                                className={`flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[11px] transition-colors ${
+                                className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-[11px] transition-colors ${
                                   isSelectedMod
                                     ? 'bg-white font-medium text-blue-700 shadow-2xs'
                                     : 'text-zinc-600 hover:bg-white/70 hover:text-zinc-900'
@@ -1114,6 +1121,18 @@ export default function App() {
                                 <span className="shrink-0 font-mono text-[10px] text-zinc-500 tabular-nums">
                                   {mod.progress}%
                                 </span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  handleDeleteModule(mod.id);
+                                }}
+                                aria-label={`Eliminar módulo ${mod.name}`}
+                                title="Eliminar módulo (va a la papelera)"
+                                className="shrink-0 rounded p-1 text-zinc-300 transition-colors hover:bg-red-50 hover:text-red-600 lg:text-transparent lg:group-hover/mod:text-zinc-400"
+                              >
+                                <Trash2 className="h-3 w-3" />
                               </button>
                             </li>
                           );
@@ -1302,10 +1321,12 @@ export default function App() {
                 setEditingProject(null);
                 setProjectModalOpen(true);
               }}
+              aria-label="Nuevo proyecto"
+              title="Nuevo proyecto"
               className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 sm:px-3.5 sm:py-2 whitespace-nowrap shrink-0"
             >
               <Plus className="h-3.5 w-3.5" />
-              Nuevo proyecto
+              <span className="hidden sm:inline">Nuevo proyecto</span>
             </button>
           </div>
         </header>
@@ -1322,13 +1343,14 @@ export default function App() {
                 key={item.id}
                 type="button"
                 onClick={() => setActiveSection(item.id)}
-                className={`rounded-md px-1 py-1.5 text-center text-[10px] font-medium leading-tight ${
+                aria-label={item.label}
+                className={`rounded-md px-1 py-1.5 text-center text-[11px] font-medium leading-tight ${
                   active
                     ? 'bg-zinc-900 text-white'
                     : 'text-zinc-600 hover:bg-zinc-100'
                 }`}
               >
-                {item.label}
+                {item.mobileLabel}
               </button>
             );
           })}
@@ -1382,6 +1404,7 @@ export default function App() {
                 setEditingModule(null);
                 setModuleModalOpen(true);
               }}
+              onDeleteModule={handleDeleteModule}
               onUpdateModuleNotes={handleUpdateModuleNotes}
               onSetModuleProgress={handleSetModuleProgress}
               onAssignModuleBranch={handleAssignModuleBranch}

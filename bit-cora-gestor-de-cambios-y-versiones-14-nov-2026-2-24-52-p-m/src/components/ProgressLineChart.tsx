@@ -251,7 +251,7 @@ export const ProgressLineChart: React.FC<ProgressLineChartProps> = ({
               })}
             </>
           ) : (
-            <span className="text-zinc-500">
+            <span className="hidden text-zinc-500 sm:inline">
               Pasa el cursor sobre un punto de la gráfica para inspeccionar el porcentaje por fecha o haz clic para seleccionar el proyecto.
             </span>
           )}

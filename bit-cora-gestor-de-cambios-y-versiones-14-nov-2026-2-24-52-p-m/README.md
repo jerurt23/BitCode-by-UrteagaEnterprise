@@ -33,6 +33,8 @@ servicio.
 - Al terminar una reunión o sesión de ideas, el comparador permite **enviar las
   notas seleccionadas a otro módulo del proyecto** o **crear un módulo nuevo**
   con esas notas (nombre, rama del módulo origen y fecha límite a 30 días).
+  Al elegir otro módulo o uno nuevo, la selección se ajusta automáticamente a
+  las **notas nuevas** (sin desmarcar a mano reemplazos ni borrados).
   Así una sola reunión puede repartirse entre varios módulos sin duplicar notas.
 
 ## Configuración

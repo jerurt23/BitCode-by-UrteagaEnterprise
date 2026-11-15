@@ -8,11 +8,13 @@ import {
   GitCompareArrows,
   History,
   Lightbulb,
+  MessageSquare,
   Plus,
   RotateCcw,
   Save,
   Send,
   Square,
+  Trash2,
   Users,
 } from 'lucide-react';
 import { NoteCaptureMode, Project, ProjectModule } from '../types/workspace';
@@ -43,6 +45,7 @@ interface NotebookComparatorViewProps {
   onChangeInnerTab: (tab: NotebookInnerTab) => void;
   onSelectModule: (moduleId: string) => void;
   onCreateModule: () => void;
+  onDeleteModule: (moduleId: string) => void;
   onUpdateModuleNotes: (
     moduleId: string,
     patch: Partial<Pick<ProjectModule, 'currentNote' | 'meetingNote' | 'ideaNote'>>,
@@ -88,6 +91,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   onChangeInnerTab,
   onSelectModule,
   onCreateModule,
+  onDeleteModule,
   onUpdateModuleNotes,
   onSetModuleProgress,
   onAssignModuleBranch,
@@ -114,6 +118,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   const [baselineSnapshot, setBaselineSnapshot] = useState<string>('');
   const [destinationModuleId, setDestinationModuleId] = useState<string>('source');
   const [newModuleName, setNewModuleName] = useState('');
+  const [showCommitMessage, setShowCommitMessage] = useState(false);
 
   useEffect(() => {
     if (activeModule) {
@@ -122,6 +127,13 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     setDestinationModuleId('source');
     setNewModuleName('');
   }, [activeModule?.id]);
+
+  // Los avisos desaparecen solos para no llenar la pantalla en el teléfono.
+  useEffect(() => {
+    if (!lastSavedNotice) return;
+    const timer = window.setTimeout(() => setLastSavedNotice(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [lastSavedNotice]);
 
   const handleSelectMode = (mode: NoteCaptureMode) => {
     setSelectedMode(mode);
@@ -148,13 +160,10 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
     if (totalChanges > 0) {
       setLayoutMode('compare');
-      setLastSavedNotice(
-        `${modeTitle} finalizado. Revisa las diferencias frente a Modo Actual o vuelve al bloc.`,
-      );
     } else {
       setLayoutMode('single');
-      setLastSavedNotice(`${modeTitle} finalizado.`);
     }
+    setLastSavedNotice(`${modeTitle} finalizado.`);
   };
 
   const handleSelectLayout = (nextLayout: NotebookLayoutMode) => {
@@ -197,6 +206,27 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     setSelectedRowIds(allChangeIds);
   }, [activeModule?.id, compareSideMode, layoutMode === 'compare']);
 
+  // Al enviar a otro módulo solo interesan las notas nuevas; no hay que
+  // desmarcar a mano los reemplazos/borrados del módulo actual.
+  useEffect(() => {
+    if (destinationModuleId === 'source') {
+      setSelectedRowIds(
+        new Set(
+          diffRows.filter((r) => r.kind !== 'unchanged').map((r) => r.id),
+        ),
+      );
+      return;
+    }
+    setSelectedRowIds(
+      new Set(
+        diffRows
+          .filter((r) => r.kind !== 'unchanged' && r.rightText !== null)
+          .map((r) => r.id),
+      ),
+    );
+    // Solo se recalcula al cambiar el destino, no en cada clic de fila.
+  }, [destinationModuleId]);
+
   const toggleRow = (rowId: string) => {
     setSelectedRowIds((prev) => {
       const next = new Set(prev);
@@ -217,6 +247,16 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
   const clearAllChanges = () => {
     setSelectedRowIds(new Set());
+  };
+
+  const selectNewChanges = () => {
+    setSelectedRowIds(
+      new Set(
+        diffRows
+          .filter((r) => r.kind !== 'unchanged' && r.rightText !== null)
+          .map((r) => r.id),
+      ),
+    );
   };
 
   const handleApplyChecked = () => {
@@ -245,9 +285,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
       setBaselineSnapshot(afterText);
       setCommitMessage('');
       setSelectedRowIds(new Set());
-      setLastSavedNotice(
-        `Cambios aplicados en "${activeModule.name}" y registrados en rama ${activeBranch?.name ?? 'main'}. Puedes seguir enviando notas a otros módulos.`,
-      );
+      setLastSavedNotice(`Cambios aplicados en "${activeModule.name}".`);
       return;
     }
 
@@ -285,7 +323,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
       setNewModuleName('');
       setDestinationModuleId('source');
       setLastSavedNotice(
-        `Módulo "${created.name}" creado con ${selectedIncomingLines.length} nota(s) de ${modeLabel}.`,
+        `Módulo "${created.name}" creado con ${selectedIncomingLines.length} nota(s).`,
       );
       return;
     }
@@ -323,9 +361,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
     setSelectedRowIds(new Set());
     setCommitMessage('');
-    setLastSavedNotice(
-      `${added} nota(s) de ${modeLabel} enviadas a "${target.name}" y registradas en su rama.`,
-    );
+    setLastSavedNotice(`${added} nota(s) enviadas a "${target.name}".`);
   };
 
   const handleSaveManualVersion = () => {
@@ -366,6 +402,26 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     : 100;
   const generalProjectProgress = computeProjectProgress(project.modules);
 
+  const routeCount =
+    destinationModuleId === 'source'
+      ? selectedRowIds.size
+      : selectedIncomingLines.length;
+
+  const diffSummary =
+    [
+      diffStats.replaced > 0
+        ? `${diffStats.replaced} reemplazo${diffStats.replaced === 1 ? '' : 's'}`
+        : null,
+      diffStats.removed > 0
+        ? `${diffStats.removed} borrado${diffStats.removed === 1 ? '' : 's'}`
+        : null,
+      diffStats.added > 0
+        ? `${diffStats.added} nueva${diffStats.added === 1 ? '' : 's'}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
   const singleModeText = activeModule
     ? selectedMode === 'actual'
       ? activeModule.currentNote
@@ -386,7 +442,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* Inner Tabs inside Bloc y Comparador: Editor y Comparador | Historial Diff */}
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-200 pb-2.5">
         <div
@@ -406,7 +462,8 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
             }`}
           >
             <FileText className="h-3.5 w-3.5" />
-            Editor y Comparador
+            <span className="sm:hidden">Editor</span>
+            <span className="hidden sm:inline">Editor y Comparador</span>
           </button>
           <button
             type="button"
@@ -420,12 +477,15 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
             }`}
           >
             <History className="h-3.5 w-3.5" />
-            Historial Diff ({project.commits.length})
+            <span className="sm:hidden">Historial ({project.commits.length})</span>
+            <span className="hidden sm:inline">
+              Historial Diff ({project.commits.length})
+            </span>
           </button>
         </div>
 
         {activeModule && innerTab === 'editor' && (
-          <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-600 sm:gap-4">
+          <div className="hidden flex-wrap items-center gap-3 text-xs text-zinc-600 sm:flex sm:gap-4">
             <div className="flex items-center gap-2">
               <ProgressCircle
                 progress={activeModule.progress}
@@ -528,14 +588,24 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                   type="button"
                   onClick={onCreateModule}
                   aria-label="Crear nuevo módulo"
-                  className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 whitespace-nowrap shrink-0"
+                  title="Crear nuevo módulo"
+                  className="inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 whitespace-nowrap shrink-0 sm:px-2.5"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Módulo
+                  <span className="hidden sm:inline">Módulo</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteModule(activeModule.id)}
+                  aria-label={`Eliminar módulo ${activeModule.name}`}
+                  title="Eliminar módulo (va a la papelera)"
+                  className="inline-flex shrink-0 items-center justify-center rounded-md p-1.5 text-zinc-300 transition-colors hover:bg-red-50 hover:text-red-600 sm:text-zinc-400"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
                 </button>
               </div>
 
-              <div className="flex w-full items-center gap-1.5 sm:w-auto">
+              <div className="hidden w-full items-center gap-1.5 sm:flex sm:w-auto">
                 <GitBranch className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
                 <label htmlFor="notebook-branch-select" className="sr-only">
                   Rama asignada al módulo
@@ -559,19 +629,63 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
               </div>
             </div>
 
-            {captureSessionActive && (
-              <span className="font-mono text-[11px] font-medium text-blue-700">
-                {captureSessionActive === 'reunion'
-                  ? 'Sesión activa: Modo Reunión (ventana única)'
-                  : 'Sesión activa: Modo Idea (ventana única)'}
-              </span>
-            )}
+            <details className="w-full sm:hidden">
+              <summary className="cursor-pointer list-none text-[11px] font-medium text-zinc-500">
+                Rama y progreso · {activeModule.progress}%
+              </summary>
+              <div className="mt-2 space-y-2">
+                <select
+                  aria-label="Rama asignada al módulo"
+                  value={activeBranch?.id ?? ''}
+                  onChange={(e) => {
+                    onAssignModuleBranch(activeModule.id, e.target.value);
+                    onSwitchBranch(e.target.value);
+                  }}
+                  className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5 font-mono text-xs text-zinc-800 focus:border-blue-600 focus:outline-none"
+                >
+                  {project.branches.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                      {b.isMerged ? ' (merged)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    step={2}
+                    value={activeModule.progress}
+                    onChange={(e) =>
+                      onSetModuleProgress(activeModule.id, Number(e.target.value))
+                    }
+                    aria-label="Ajustar progreso del módulo"
+                    className="min-w-0 flex-1 accent-blue-600"
+                  />
+                  <span className="font-mono text-[11px] font-medium text-zinc-700 tabular-nums">
+                    {activeModule.progress}%
+                  </span>
+                  {activeModule.progress !== computedBlocProgress && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onSetModuleProgress(activeModule.id, computedBlocProgress)
+                      }
+                      className="rounded border border-zinc-300 bg-white px-1.5 py-1 text-[10px] font-medium text-zinc-600 hover:bg-zinc-50 whitespace-nowrap"
+                    >
+                      Auto {computedBlocProgress}%
+                    </button>
+                  )}
+                </div>
+              </div>
+            </details>
           </div>
 
           {/* Row 2: Izquierda (Modos + Fin modo) | Centro (Comparar) | Derecha (1 vista | 2 vistas) */}
           <div
             data-testid="bloc-modes-toolbar"
-            className="flex flex-col gap-2.5 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:px-4 xl:grid xl:grid-cols-[1fr_auto_1fr]"
+            className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-2 sm:gap-2.5 sm:px-4 sm:py-2.5 xl:grid xl:grid-cols-[1fr_auto_1fr]"
           >
             {/* LEFT: Modos + Fin modo reunión / Fin modo idea */}
             <div className="flex flex-wrap items-center gap-1.5 xl:flex-nowrap xl:justify-self-start">
@@ -583,24 +697,28 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleSelectMode('actual')}
+                  aria-label="Modo Actual"
+                  title="Modo Actual"
                   aria-pressed={selectedMode === 'actual' && layoutMode !== 'compare'}
-                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 sm:px-2.5 ${
                     selectedMode === 'actual' && layoutMode !== 'compare'
                       ? 'bg-white text-zinc-900 shadow-xs'
                       : 'text-zinc-600 hover:text-zinc-900'
                   }`}
                 >
                   <FileText className="h-3.5 w-3.5" />
-                  Modo Actual
+                  <span className="hidden sm:inline">Modo Actual</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSelectMode('reunion')}
+                  aria-label="Modo Reunión"
+                  title="Modo Reunión"
                   aria-pressed={
                     captureSessionActive === 'reunion' ||
                     (layoutMode === 'dual' && compareSideMode === 'reunion')
                   }
-                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 sm:px-2.5 ${
                     captureSessionActive === 'reunion' ||
                     (layoutMode === 'dual' && compareSideMode === 'reunion')
                       ? 'bg-white text-zinc-900 shadow-xs'
@@ -608,16 +726,18 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                   }`}
                 >
                   <Users className="h-3.5 w-3.5" />
-                  Modo Reunión
+                  <span className="hidden sm:inline">Modo Reunión</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => handleSelectMode('idea')}
+                  aria-label="Modo Idea"
+                  title="Modo Idea"
                   aria-pressed={
                     captureSessionActive === 'idea' ||
                     (layoutMode === 'dual' && compareSideMode === 'idea')
                   }
-                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors whitespace-nowrap shrink-0 sm:px-2.5 ${
                     captureSessionActive === 'idea' ||
                     (layoutMode === 'dual' && compareSideMode === 'idea')
                       ? 'bg-white text-zinc-900 shadow-xs'
@@ -625,7 +745,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                   }`}
                 >
                   <Lightbulb className="h-3.5 w-3.5" />
-                  Modo Idea
+                  <span className="hidden sm:inline">Modo Idea</span>
                 </button>
               </div>
 
@@ -636,15 +756,20 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                   className="inline-flex items-center gap-1 rounded-md bg-zinc-900 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-zinc-800 whitespace-nowrap shrink-0"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  {captureSessionActive === 'reunion'
-                    ? 'Fin modo reunión'
-                    : 'Fin modo idea'}
+                  <span className="sm:hidden">
+                    {captureSessionActive === 'reunion' ? 'Fin reunión' : 'Fin idea'}
+                  </span>
+                  <span className="hidden sm:inline">
+                    {captureSessionActive === 'reunion'
+                      ? 'Fin modo reunión'
+                      : 'Fin modo idea'}
+                  </span>
                 </button>
               )}
             </div>
 
             {/* CENTER: Comparar */}
-            <div className="flex items-center justify-center xl:justify-self-center">
+            <div className="hidden items-center justify-center sm:flex xl:justify-self-center">
               <button
                 type="button"
                 onClick={() => handleSelectLayout('compare')}
@@ -661,7 +786,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
             </div>
 
             {/* RIGHT: 1 vista | 2 vistas */}
-            <div className="flex items-center justify-end xl:justify-self-end">
+            <div className="hidden items-center justify-end sm:flex xl:justify-self-end">
               <div
                 className="flex items-center rounded-md border border-zinc-200 bg-zinc-100 p-0.5"
                 role="group"
@@ -695,6 +820,56 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Móvil: vista única | doble | comparar */}
+            <div
+              className="flex items-center rounded-md border border-zinc-200 bg-zinc-100 p-0.5 sm:hidden"
+              role="group"
+              aria-label="Vista del bloc"
+            >
+              <button
+                type="button"
+                onClick={() => handleSelectLayout('single')}
+                aria-label="Vista única"
+                aria-pressed={layoutMode === 'single'}
+                className={`inline-flex items-center justify-center rounded px-2.5 py-1.5 ${
+                  layoutMode === 'single'
+                    ? 'bg-white text-zinc-900 shadow-xs'
+                    : 'text-zinc-500'
+                }`}
+              >
+                <Square className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectLayout('dual')}
+                aria-label="Dos vistas"
+                aria-pressed={layoutMode === 'dual'}
+                className={`inline-flex items-center justify-center rounded px-2.5 py-1.5 ${
+                  layoutMode === 'dual'
+                    ? 'bg-white text-zinc-900 shadow-xs'
+                    : 'text-zinc-500'
+                }`}
+              >
+                <Columns2 className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectLayout('compare')}
+                aria-label={`Comparar (${totalChanges})`}
+                aria-pressed={layoutMode === 'compare'}
+                className={`inline-flex items-center justify-center gap-0.5 rounded px-2.5 py-1.5 ${
+                  layoutMode === 'compare'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-zinc-500'
+                }`}
+              >
+                <GitCompareArrows className="h-3.5 w-3.5" />
+                <span className="font-mono text-[10px] tabular-nums">
+                  {totalChanges}
+                </span>
+              </button>
+            </div>
           </div>
 
           {lastSavedNotice && (
@@ -711,7 +886,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                   <button
                     type="button"
                     onClick={() => handleSelectMode('actual')}
-                    className="font-medium text-emerald-900 underline hover:text-emerald-950 whitespace-nowrap"
+                    className="hidden font-medium text-emerald-900 underline hover:text-emerald-950 whitespace-nowrap sm:inline"
                   >
                     Volver a Modo Actual
                   </button>
@@ -730,101 +905,96 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
           {/* Workspace Body */}
           {layoutMode === 'compare' ? (
             <div className="space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white px-3 py-3 sm:px-4">
-                <div className="flex flex-wrap items-center gap-3 text-xs text-zinc-600">
-                  <span>
-                    Diferencias ({compareSideMode === 'reunion' ? 'Reunión' : 'Idea'} vs Actual):{' '}
-                    <strong className="font-mono text-amber-700 tabular-nums">
-                      {diffStats.replaced} reemplazos
-                    </strong>
-                    {' · '}
-                    <strong className="font-mono text-red-700 tabular-nums">
-                      {diffStats.removed} borrados
-                    </strong>
-                    {' · '}
-                    <strong className="font-mono text-emerald-700 tabular-nums">
-                      {diffStats.added} nuevos
-                    </strong>
+              <div className="space-y-2.5 rounded-lg border border-zinc-200 bg-white px-3 py-2.5 sm:p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-mono text-[11px] text-zinc-500">
+                    {diffSummary || 'Sin cambios'}
                   </span>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 text-[10px] font-medium">
                     <button
                       type="button"
                       onClick={selectAllChanges}
-                      className="text-blue-600 hover:underline whitespace-nowrap"
+                      className="text-zinc-500 hover:text-zinc-900"
                     >
-                      Marcar todo
+                      Todas
                     </button>
-                    <span aria-hidden="true" className="text-zinc-300">
-                      |
-                    </span>
+                    <button
+                      type="button"
+                      onClick={selectNewChanges}
+                      className="text-blue-600 hover:text-blue-700"
+                    >
+                      Nuevas
+                    </button>
                     <button
                       type="button"
                       onClick={clearAllChanges}
-                      className="text-zinc-600 hover:underline whitespace-nowrap"
+                      className="text-zinc-500 hover:text-zinc-900"
                     >
-                      Desmarcar todo
+                      Ninguna
                     </button>
                   </div>
                 </div>
 
-                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label
-                      htmlFor="meeting-destination"
-                      className="text-[10px] font-medium text-zinc-500"
-                    >
-                      Aplicar a
-                    </label>
-                    <select
-                      id="meeting-destination"
-                      value={destinationModuleId}
-                      onChange={(e) => setDestinationModuleId(e.target.value)}
-                      className="max-w-[220px] rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none"
-                    >
-                      <option value="source">
-                        Módulo actual: {activeModule?.name ?? ''}
-                      </option>
-                      {project.modules
-                        .filter((mod) => mod.id !== activeModule?.id)
-                        .map((mod) => (
-                          <option key={mod.id} value={mod.id}>
-                            {mod.name}
-                          </option>
-                        ))}
-                      <option value="new">+ Nuevo módulo…</option>
-                    </select>
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                  <select
+                    id="meeting-destination"
+                    aria-label="Módulo de destino"
+                    value={destinationModuleId}
+                    onChange={(e) => setDestinationModuleId(e.target.value)}
+                    className="w-full rounded-md border border-zinc-300 bg-white px-2.5 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-auto sm:max-w-[220px]"
+                  >
+                    <option value="source">
+                      Módulo actual: {activeModule?.name ?? ''}
+                    </option>
+                    {project.modules
+                      .filter((mod) => mod.id !== activeModule?.id)
+                      .map((mod) => (
+                        <option key={mod.id} value={mod.id}>
+                          {mod.name}
+                        </option>
+                      ))}
+                    <option value="new">+ Nuevo módulo…</option>
+                  </select>
 
-                    {destinationModuleId === 'new' && (
-                      <input
-                        type="text"
-                        value={newModuleName}
-                        onChange={(e) => setNewModuleName(e.target.value)}
-                        aria-label="Nombre del nuevo módulo"
-                        placeholder="Nombre del nuevo módulo"
-                        className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-44"
-                      />
-                    )}
-                  </div>
+                  {destinationModuleId === 'new' && (
+                    <input
+                      type="text"
+                      value={newModuleName}
+                      onChange={(e) => setNewModuleName(e.target.value)}
+                      aria-label="Nombre del nuevo módulo"
+                      placeholder="Nombre del nuevo módulo"
+                      className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-44"
+                    />
+                  )}
 
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex w-full items-center gap-2 sm:w-auto">
+                    <button
+                      type="button"
+                      onClick={() => setShowCommitMessage((prev) => !prev)}
+                      aria-label="Mensaje del historial"
+                      aria-expanded={showCommitMessage}
+                      className="shrink-0 rounded-md border border-zinc-200 bg-white p-1.5 text-zinc-500 hover:bg-zinc-50 sm:hidden"
+                    >
+                      <MessageSquare className="h-3.5 w-3.5" />
+                    </button>
                     <input
                       type="text"
                       value={commitMessage}
                       onChange={(e) => setCommitMessage(e.target.value)}
                       aria-label="Mensaje de cambio para el historial"
-                      placeholder={`Mensaje de commit (${compareSideMode === 'reunion' ? 'Reunión' : 'Idea'})...`}
-                      className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-64"
+                      placeholder="Mensaje (opcional)"
+                      className={`${showCommitMessage ? 'block' : 'hidden'} w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:block sm:w-56`}
                     />
                     <button
                       type="button"
                       onClick={handleApplyChecked}
                       disabled={
-                        selectedRowIds.size === 0 ||
+                        routeCount === 0 ||
                         totalChanges === 0 ||
                         (destinationModuleId === 'new' &&
                           !newModuleName.trim())
                       }
-                      className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300 whitespace-nowrap shrink-0"
+                      className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300 whitespace-nowrap sm:w-auto"
                     >
                       {destinationModuleId === 'source' ? (
                         <Check className="h-3.5 w-3.5" />
@@ -832,21 +1002,13 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                         <Send className="h-3.5 w-3.5" />
                       )}
                       {destinationModuleId === 'source'
-                        ? `Aplicar marcados (${selectedRowIds.size})`
+                        ? `Aplicar (${routeCount})`
                         : destinationModuleId === 'new'
-                          ? `Crear módulo (${selectedRowIds.size})`
-                          : `Enviar notas (${selectedRowIds.size})`}
+                          ? `Crear (${routeCount})`
+                          : `Enviar (${routeCount})`}
                     </button>
                   </div>
                 </div>
-              </div>
-
-              <div className="rounded-md border border-blue-100 bg-blue-50/70 px-3 py-2 text-[11px] leading-relaxed text-blue-900">
-                <strong>Reunión con varios temas:</strong> marca las notas de un
-                tema, elige su módulo de destino y pulsa el botón. Repite con
-                cada tema, o elige <em>+ Nuevo módulo</em> para crear uno con
-                las notas seleccionadas. Las notas enviadas a otros módulos no
-                se aplican al módulo actual.
               </div>
 
               <SplitDiffViewer

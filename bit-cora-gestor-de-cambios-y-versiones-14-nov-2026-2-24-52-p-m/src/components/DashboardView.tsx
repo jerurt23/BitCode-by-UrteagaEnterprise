@@ -114,7 +114,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 Avance de módulos por proyecto
               </h2>
             </div>
-            <span className="text-[11px] text-zinc-500">
+            <span className="hidden text-[11px] text-zinc-500 sm:inline">
               Toca un módulo para abrir su bloc
             </span>
           </div>
@@ -123,7 +123,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {projects.map((project) => {
               const projectPct = computeProjectProgress(project.modules);
               return (
-                <div key={project.id} className="bg-white p-4">
+                <div key={project.id} className="bg-white p-3 sm:p-4">
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <button
                       type="button"
