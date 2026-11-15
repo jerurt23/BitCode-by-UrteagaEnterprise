@@ -219,9 +219,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     }
     setSelectedRowIds(
       new Set(
-        diffRows
-          .filter((r) => r.kind !== 'unchanged' && r.rightText !== null)
-          .map((r) => r.id),
+        diffRows.filter((r) => r.kind === 'added').map((r) => r.id),
       ),
     );
     // Solo se recalcula al cambiar el destino, no en cada clic de fila.
@@ -251,11 +249,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
   const selectNewChanges = () => {
     setSelectedRowIds(
-      new Set(
-        diffRows
-          .filter((r) => r.kind !== 'unchanged' && r.rightText !== null)
-          .map((r) => r.id),
-      ),
+      new Set(diffRows.filter((r) => r.kind === 'added').map((r) => r.id)),
     );
   };
 
