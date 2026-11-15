@@ -1,14 +1,18 @@
 import { useMutation, useQuery } from 'convex/react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Check,
   ChevronDown,
   ChevronRight,
+  Download,
   Menu,
   Moon,
   Plus,
   Search,
+  Smartphone,
   Sun,
   Trash2,
+  Upload,
   X,
 } from 'lucide-react';
 import { DashboardView } from './components/DashboardView';
@@ -37,6 +41,13 @@ import {
   updateBranchInProject,
 } from './utils/gitGraph';
 import {
+  LOCAL_DATA_FILE_NAME,
+  exportDataFile,
+  parseDataFileText,
+  requestPersistentStorage,
+  saveLocalDataFile,
+} from './utils/localDataFile';
+import {
   PRIORITY_LABELS,
   computeProgressFromBloc,
   computeProjectProgress,
@@ -52,6 +63,11 @@ const STORAGE_KEY = 'bitacora_projects_v2';
 const THEME_KEY = 'bitcode_theme';
 
 type ThemeMode = 'light' | 'dark';
+
+interface InstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
 
 function loadInitialTheme(): ThemeMode {
   try {
@@ -104,6 +120,29 @@ export default function App() {
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [theme, setTheme] = useState<ThemeMode>(loadInitialTheme);
+  const [localFileSavedAt, setLocalFileSavedAt] = useState<Date | null>(null);
+  const [localFileUnavailable, setLocalFileUnavailable] = useState(false);
+  const [dataNotice, setDataNotice] = useState<{
+    kind: 'ok' | 'error';
+    text: string;
+  } | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<InstallPromptEvent | null>(
+    null,
+  );
+  const [isInstalledApp] = useState(
+    () =>
+      window.matchMedia?.('(display-mode: standalone)').matches ||
+      (navigator as { standalone?: boolean }).standalone === true,
+  );
+  const [isIos] = useState(() => /iphone|ipad|ipod/i.test(navigator.userAgent));
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const noticeTimer = useRef<number | null>(null);
+
+  const showDataNotice = (kind: 'ok' | 'error', text: string) => {
+    setDataNotice({ kind, text });
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setDataNotice(null), 5000);
+  };
 
   // --- Sincronización con Convex ---
   const remoteProjects = useQuery(api.workspace.get);
@@ -196,6 +235,104 @@ export default function App() {
       meta.setAttribute('content', theme === 'dark' ? '#0b0b0d' : '#FAF9F6');
     }
   }, [theme]);
+
+  // --- Archivo local "Datos BitCode" + PWA ---
+  useEffect(() => {
+    void requestPersistentStorage();
+  }, []);
+
+  useEffect(() => {
+    const onBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as InstallPromptEvent);
+    };
+    const onInstalled = () => {
+      setInstallPrompt(null);
+      showDataNotice('ok', 'BitCode quedó instalada en tu teléfono.');
+    };
+    window.addEventListener('beforeinstallprompt', onBeforeInstall);
+    window.addEventListener('appinstalled', onInstalled);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstall);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
+  // Guarda una copia en el archivo interno "Datos BitCode.json" en cada cambio.
+  useEffect(() => {
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      saveLocalDataFile(projects)
+        .then((saved) => {
+          if (cancelled) return;
+          if (saved) {
+            setLocalFileSavedAt(new Date());
+            setLocalFileUnavailable(false);
+          } else {
+            setLocalFileUnavailable(true);
+          }
+        })
+        .catch(() => {
+          // Sin OPFS disponible, localStorage sigue funcionando como caché.
+        });
+    }, 600);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [projects]);
+
+  const handleExportData = async () => {
+    try {
+      const result = await exportDataFile(projects);
+      showDataNotice(
+        'ok',
+        result === 'shared'
+          ? 'Copia lista. Guárdala en Archivos/Drive.'
+          : `${LOCAL_DATA_FILE_NAME} descargado.`,
+      );
+    } catch (error) {
+      if ((error as Error).name === 'AbortError') return;
+      showDataNotice('error', 'No se pudo exportar la copia.');
+    }
+  };
+
+  const handleImportDataFile = async (file: File) => {
+    try {
+      const imported = parseDataFileText(await file.text());
+      const ok = window.confirm(
+        `Se reemplazarán los datos actuales (${projects.length} proyectos) por los del archivo (${imported.length} proyectos). ¿Continuar?`,
+      );
+      if (!ok) return;
+
+      const next = normalizeProjects(imported);
+      hydratedFromConvex.current = true;
+      lastSyncedPayload.current = null;
+      pendingPayload.current = null;
+      setProjects(next);
+      setActiveProjectId(next[0]?.id ?? '');
+      setSelectedModuleId(next[0]?.modules[0]?.id ?? null);
+      setExpandedProjectIds(new Set(next[0]?.id ? [next[0].id] : []));
+      showDataNotice('ok', `Copia importada: ${next.length} proyectos.`);
+    } catch (error) {
+      showDataNotice(
+        'error',
+        error instanceof Error ? error.message : 'No se pudo leer el archivo.',
+      );
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleInstallApp = async () => {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    const choice = await installPrompt.userChoice;
+    setInstallPrompt(null);
+    if (choice.outcome === 'accepted') {
+      showDataNotice('ok', 'BitCode instalado en tu teléfono.');
+    }
+  };
 
   const activeProject = useMemo(
     () => projects.find((p) => p.id === activeProjectId) ?? projects[0] ?? null,
@@ -837,6 +974,91 @@ export default function App() {
           })}
         </ul>
       </div>
+
+      <div className="border-t border-zinc-200 p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+            Datos locales
+          </span>
+          <span
+            className={`inline-flex items-center gap-1 text-[10px] font-medium ${
+              localFileUnavailable
+                ? 'text-zinc-400'
+                : localFileSavedAt
+                  ? 'text-emerald-600'
+                  : 'text-zinc-400'
+            }`}
+            title={
+              localFileUnavailable
+                ? 'Este navegador solo permite caché local; usa Guardar copia para crear el archivo.'
+                : 'Copia automática en el archivo Datos BitCode.json'
+            }
+          >
+            <Check className="h-3 w-3" />
+            {localFileUnavailable
+              ? 'Solo caché'
+              : localFileSavedAt
+                ? `Guardado ${localFileSavedAt.toLocaleTimeString('es-ES', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}`
+                : 'Guardando…'}
+          </span>
+        </div>
+        <p
+          className="mb-2 truncate font-mono text-[10px] text-zinc-400"
+          title={LOCAL_DATA_FILE_NAME}
+        >
+          {LOCAL_DATA_FILE_NAME}
+        </p>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={handleExportData}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+            title="Descargar o compartir el archivo Datos BitCode.json"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Guardar copia
+          </button>
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex items-center justify-center gap-1.5 rounded-md border border-zinc-200 bg-white px-2 py-1.5 text-[11px] font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
+            title="Cargar un archivo Datos BitCode.json"
+          >
+            <Upload className="h-3.5 w-3.5" />
+            Cargar copia
+          </button>
+        </div>
+
+        {installPrompt && !isInstalledApp && (
+          <button
+            type="button"
+            onClick={handleInstallApp}
+            className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-600 px-2 py-1.5 text-[11px] font-medium text-white transition-colors hover:bg-blue-700"
+          >
+            <Smartphone className="h-3.5 w-3.5" />
+            Instalar en el teléfono
+          </button>
+        )}
+
+        {!installPrompt && isIos && !isInstalledApp && (
+          <p className="mt-2 rounded-md bg-zinc-50 px-2 py-1.5 text-[10px] leading-snug text-zinc-500">
+            En iPhone: Compartir → Añadir a pantalla de inicio.
+          </p>
+        )}
+
+        {dataNotice && (
+          <p
+            className={`mt-2 text-[10px] leading-snug ${
+              dataNotice.kind === 'ok' ? 'text-emerald-600' : 'text-red-600'
+            }`}
+          >
+            {dataNotice.text}
+          </p>
+        )}
+      </div>
     </div>
   );
 
@@ -1030,6 +1252,18 @@ export default function App() {
           )}
         </main>
       </div>
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        aria-label="Cargar copia de Datos BitCode"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void handleImportDataFile(file);
+        }}
+      />
 
       {/* Modals */}
       <ProjectModal

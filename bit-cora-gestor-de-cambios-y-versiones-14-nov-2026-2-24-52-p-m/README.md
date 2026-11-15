@@ -19,6 +19,24 @@ This contains everything you need to run your app locally.
 Projects live in Convex, so changes sync live across tabs and devices. `localStorage`
 is kept only as an offline cache; on first run the app uploads existing local data.
 
+## Datos locales en el teléfono
+
+- La app es una PWA: ábrela en el navegador del teléfono y usa
+  **Compartir → Añadir a pantalla de inicio** (iPhone) o **Instalar app**
+  (Android/Chrome). También aparece el botón **Instalar en el teléfono** en la
+  barra lateral cuando el navegador lo permite.
+- Cada cambio se guarda automáticamente en el archivo interno
+  `Datos BitCode.json` (almacenamiento privado del navegador, OPFS), además de
+  la caché en `localStorage`. En la barra lateral verás la hora del último
+  guardado.
+- **Guardar copia** exporta `Datos BitCode.json` como archivo real: en el
+  teléfono abre la hoja de compartir para guardarlo en Archivos/Drive; en
+  escritorio lo descarga.
+- **Cargar copia** importa un `Datos BitCode.json` y reemplaza los datos
+  actuales (pide confirmación y sincroniza con Convex).
+- Los datos siguen sincronizándose en la nube de Convex; el archivo local es
+  la copia de seguridad del dispositivo y permite abrir la app sin conexión.
+
 ## Deployment
 
 - Backend: `npx convex deploy` creates/updates the production deployment of your

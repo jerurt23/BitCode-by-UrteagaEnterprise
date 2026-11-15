@@ -17,3 +17,14 @@ createRoot(document.getElementById('root')!).render(
     <App />
   </ConvexProvider>,
 );
+
+// PWA: registra el service worker para poder instalar la app en el teléfono.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker
+      .register(`${import.meta.env.BASE_URL}sw.js`)
+      .catch((error) => {
+        console.warn('No se pudo registrar el service worker', error);
+      });
+  });
+}
