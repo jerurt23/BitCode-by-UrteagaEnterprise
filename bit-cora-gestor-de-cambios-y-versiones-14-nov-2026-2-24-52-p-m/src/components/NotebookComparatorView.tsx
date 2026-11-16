@@ -119,6 +119,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   const [destinationModuleId, setDestinationModuleId] = useState<string>('source');
   const [newModuleName, setNewModuleName] = useState('');
   const [showCommitMessage, setShowCommitMessage] = useState(false);
+  const [createdModuleId, setCreatedModuleId] = useState<string | null>(null);
 
   useEffect(() => {
     if (activeModule) {
@@ -126,12 +127,13 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     }
     setDestinationModuleId('source');
     setNewModuleName('');
+    setCreatedModuleId(null);
   }, [activeModule?.id]);
 
   // Los avisos desaparecen solos para no llenar la pantalla en el teléfono.
   useEffect(() => {
     if (!lastSavedNotice) return;
-    const timer = window.setTimeout(() => setLastSavedNotice(null), 6000);
+    const timer = window.setTimeout(() => setLastSavedNotice(null), 10000);
     return () => window.clearTimeout(timer);
   }, [lastSavedNotice]);
 
@@ -219,7 +221,9 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     }
     setSelectedRowIds(
       new Set(
-        diffRows.filter((r) => r.kind === 'added').map((r) => r.id),
+        diffRows
+          .filter((r) => r.kind !== 'unchanged' && r.rightText !== null)
+          .map((r) => r.id),
       ),
     );
     // Solo se recalcula al cambiar el destino, no en cada clic de fila.
@@ -249,7 +253,11 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
   const selectNewChanges = () => {
     setSelectedRowIds(
-      new Set(diffRows.filter((r) => r.kind === 'added').map((r) => r.id)),
+      new Set(
+        diffRows
+          .filter((r) => r.kind !== 'unchanged' && r.rightText !== null)
+          .map((r) => r.id),
+      ),
     );
   };
 
@@ -279,6 +287,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
       setBaselineSnapshot(afterText);
       setCommitMessage('');
       setSelectedRowIds(new Set());
+      setCreatedModuleId(null);
       setLastSavedNotice(`Cambios aplicados en "${activeModule.name}".`);
       return;
     }
@@ -316,6 +325,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
       setCommitMessage('');
       setNewModuleName('');
       setDestinationModuleId('source');
+      setCreatedModuleId(created.id);
       setLastSavedNotice(
         `Módulo "${created.name}" creado con ${selectedIncomingLines.length} nota(s).`,
       );
@@ -355,6 +365,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
 
     setSelectedRowIds(new Set());
     setCommitMessage('');
+    setCreatedModuleId(null);
     setLastSavedNotice(`${added} nota(s) enviadas a "${target.name}".`);
   };
 
@@ -876,6 +887,22 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                 {lastSavedNotice}
               </span>
               <div className="flex items-center gap-3">
+                {createdModuleId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSelectModule(createdModuleId);
+                      setSelectedMode('actual');
+                      setCaptureSessionActive(null);
+                      setLayoutMode('single');
+                      setLastSavedNotice(null);
+                      setCreatedModuleId(null);
+                    }}
+                    className="font-medium text-emerald-900 underline hover:text-emerald-950 whitespace-nowrap"
+                  >
+                    Abrir módulo
+                  </button>
+                )}
                 {layoutMode === 'compare' && (
                   <button
                     type="button"
