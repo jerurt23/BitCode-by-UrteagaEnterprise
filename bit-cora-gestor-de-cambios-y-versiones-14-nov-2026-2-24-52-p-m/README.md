@@ -39,6 +39,26 @@ servicio.
   Reunión y Modo Idea** para elegir exactamente cuáles se llevan al módulo.
   Así una sola reunión puede repartirse entre varios módulos sin duplicar notas.
 
+## Cuentas y acceso
+
+- Login con **usuario y contraseña** mediante Convex Auth. Las contraseñas se
+  guardan hasheadas (Argon2id/Scrypt), nunca en texto plano ni en la caché.
+- La **sesión** se guarda en `localStorage` (token, no contraseña), así que al
+  volver a abrir la app no se pide la contraseña. Cerrar sesión la elimina.
+- Cada usuario tiene su **espacio de trabajo propio** y solo ve sus proyectos.
+- El espacio anterior (documento `main`) se importa a la cuenta con un **código
+  privado** desde **Configuración → Espacio de trabajo anterior**; así un
+  visitante no puede reclamarlo.
+- El archivo local se guarda por usuario:
+  `Datos BitCode - <usuario>.json`.
+- El perfil (nombre, correo de contacto, color), el cambio de contraseña y el
+  cierre de sesión están en **Configuración → Mi cuenta**.
+
+> La colaboración entre usuarios (invitaciones por enlace/código, roles
+> propietario/editor/lector y espacios compartidos) es la siguiente fase.
+> Por ahora no hay recuperación de contraseña por correo; guarda tus
+> credenciales.
+
 ## Configuración
 
 La pestaña **Configuración** incluye:

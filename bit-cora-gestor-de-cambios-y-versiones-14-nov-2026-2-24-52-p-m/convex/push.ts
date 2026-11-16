@@ -55,7 +55,6 @@ async function sendToMany(
       } catch (error) {
         const statusCode = (error as { statusCode?: number }).statusCode;
         if (statusCode === 404 || statusCode === 410) {
-          // Suscripción caducada: se elimina para no reintentar.
           await ctx.runMutation(internal.notifications.removeByEndpoint, {
             endpoint: target.endpoint,
           });
@@ -73,7 +72,7 @@ async function sendToMany(
   return sent;
 }
 
-/** Avisa a los demás dispositivos cuando cambia un módulo. */
+/** Avisa a los demás dispositivos del mismo usuario cuando cambia un módulo. */
 export const sendModuleUpdates = internalAction({
   args: {
     changes: v.array(
@@ -84,6 +83,7 @@ export const sendModuleUpdates = internalAction({
       }),
     ),
     originDeviceId: v.optional(v.string()),
+    ownerUserId: v.string(),
   },
   handler: async (ctx, args) => {
     if (args.changes.length === 0) return;
@@ -95,6 +95,7 @@ export const sendModuleUpdates = internalAction({
     const moduleIds = new Set(args.changes.map((change) => change.moduleId));
     const targets = subscriptions.filter(
       (sub) =>
+        sub.userId === args.ownerUserId &&
         sub.deviceId !== args.originDeviceId &&
         sub.moduleIds.some((id) => moduleIds.has(id)),
     );
@@ -142,15 +143,23 @@ export const sendTestPush = internalAction({
   },
 });
 
-/** Recordatorio diario de fechas límite de los próximos 3 días. */
+const relativeDeadline = (days: number) =>
+  days === 0 ? 'hoy' : days === 1 ? 'mañana' : `en ${days} días`;
+
+/** Recordatorio diario de fechas límite de los próximos 3 días, por usuario. */
 export const sendDeadlineReminders = internalAction({
   args: {},
   handler: async (ctx) => {
-    const projects = await ctx.runQuery(
-      internal.notifications.getProjects,
+    const workspaces = await ctx.runQuery(
+      internal.notifications.listWorkspaces,
       {},
     );
-    if (!Array.isArray(projects)) return;
+    if (workspaces.length === 0) return;
+
+    const subscriptions = await ctx.runQuery(
+      internal.notifications.listSubscriptions,
+      {},
+    );
 
     const now = new Date();
     const todayUTC = Date.UTC(
@@ -159,68 +168,71 @@ export const sendDeadlineReminders = internalAction({
       now.getUTCDate(),
     );
 
-    const due: Array<{
-      moduleId: string;
-      moduleName: string;
-      projectName: string;
-      days: number;
-    }> = [];
+    for (const workspace of workspaces) {
+      // Los documentos antiguos con clave 'main' se migran al primer login.
+      if (workspace.key === 'main') continue;
+      const projects = workspace.projects;
+      if (!Array.isArray(projects)) continue;
 
-    for (const project of projects) {
-      const modules = Array.isArray(project?.modules) ? project.modules : [];
-      for (const module of modules) {
-        if (!module?.deadline || module.status === 'completado') continue;
-        const [year, month, day] = String(module.deadline)
-          .split('-')
-          .map(Number);
-        if (!year || !month || !day) continue;
+      const due: Array<{
+        moduleId: string;
+        moduleName: string;
+        projectName: string;
+        days: number;
+      }> = [];
 
-        const deadlineUTC = Date.UTC(year, month - 1, day);
-        const days = Math.round((deadlineUTC - todayUTC) / 86_400_000);
-        if (days >= 0 && days <= 2) {
-          due.push({
-            moduleId: module.id,
-            moduleName: String(module.name ?? 'Módulo'),
-            projectName: String(project.name ?? 'Proyecto'),
-            days,
-          });
+      for (const project of projects) {
+        const modules = Array.isArray(project?.modules) ? project.modules : [];
+        for (const module of modules) {
+          if (!module?.deadline || module.status === 'completado') continue;
+          const [year, month, day] = String(module.deadline)
+            .split('-')
+            .map(Number);
+          if (!year || !month || !day) continue;
+
+          const deadlineUTC = Date.UTC(year, month - 1, day);
+          const days = Math.round((deadlineUTC - todayUTC) / 86_400_000);
+          if (days >= 0 && days <= 2) {
+            due.push({
+              moduleId: module.id,
+              moduleName: String(module.name ?? 'Módulo'),
+              projectName: String(project.name ?? 'Proyecto'),
+              days,
+            });
+          }
         }
       }
+
+      if (due.length === 0) continue;
+
+      const moduleIds = new Set(due.map((item) => item.moduleId));
+      const targets = subscriptions.filter(
+        (sub) =>
+          sub.userId === workspace.key &&
+          sub.deadlineReminders &&
+          sub.moduleIds.some((id) => moduleIds.has(id)),
+      );
+      if (targets.length === 0) continue;
+
+      const first = due[0];
+      await sendToMany(ctx, targets, {
+        title:
+          due.length === 1
+            ? `Vence pronto: ${first.moduleName}`
+            : `${due.length} módulos con fecha límite próxima`,
+        body:
+          due.length === 1
+            ? `${first.projectName} · vence ${relativeDeadline(first.days)}.`
+            : due
+                .slice(0, 3)
+                .map(
+                  (item) =>
+                    `${item.moduleName} (${relativeDeadline(item.days)})`,
+                )
+                .join(', '),
+        url: './',
+        tag: 'bitcode-deadlines',
+      });
     }
-
-    if (due.length === 0) return;
-
-    const subscriptions = await ctx.runQuery(
-      internal.notifications.listSubscriptions,
-      {},
-    );
-    const moduleIds = new Set(due.map((item) => item.moduleId));
-    const targets = subscriptions.filter(
-      (sub) =>
-        sub.deadlineReminders &&
-        sub.moduleIds.some((id) => moduleIds.has(id)),
-    );
-
-    if (targets.length === 0) return;
-
-    const first = due[0];
-    const relative = (days: number) =>
-      days === 0 ? 'hoy' : days === 1 ? 'mañana' : `en ${days} días`;
-
-    await sendToMany(ctx, targets, {
-      title:
-        due.length === 1
-          ? `Vence pronto: ${first.moduleName}`
-          : `${due.length} módulos con fecha límite próxima`,
-      body:
-        due.length === 1
-          ? `${first.projectName} · vence ${relative(first.days)}.`
-          : due
-              .slice(0, 3)
-              .map((item) => `${item.moduleName} (${relative(item.days)})`)
-              .join(', '),
-      url: './',
-      tag: 'bitcode-deadlines',
-    });
   },
 });

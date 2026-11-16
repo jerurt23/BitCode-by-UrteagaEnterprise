@@ -26,8 +26,8 @@ import { ProgressCircle } from './components/ProgressCircle';
 import { ProjectModal } from './components/ProjectModal';
 import { SettingsView } from './components/SettingsView';
 import { api } from '../convex/_generated/api';
-import { SEED_PROJECTS } from './data/seedProjects';
 import {
+  CurrentUser,
   ModuleStatus,
   Priority,
   Project,
@@ -42,7 +42,6 @@ import {
   updateBranchInProject,
 } from './utils/gitGraph';
 import {
-  LOCAL_DATA_FILE_NAME,
   exportDataFile,
   parseDataFileText,
   requestPersistentStorage,
@@ -61,8 +60,14 @@ import {
   restoreModuleFromTrash,
 } from './utils/projectHelpers';
 
-const STORAGE_KEY = 'bitacora_projects_v2';
+const STORAGE_KEY_BASE = 'bitacora_projects_v2';
+const LEGACY_STORAGE_KEY = STORAGE_KEY_BASE;
+const LEGACY_CACHE_CLAIMED_KEY = 'bitcode_legacy_cache_claimed';
 const THEME_KEY = 'bitcode_theme';
+
+function storageKeyForUser(userId: string): string {
+  return `${STORAGE_KEY_BASE}:${userId}`;
+}
 
 type ThemeMode = 'light' | 'dark';
 
@@ -91,31 +96,53 @@ function normalizeProjects(projects: Project[]): Project[] {
   return projects.map((project) => purgeExpiredTrash({ ...project, trash: project.trash ?? [] }));
 }
 
-function loadInitialProjects(): Project[] {
+function loadInitialProjects(storageKey: string): Project[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return normalizeProjects(SEED_PROJECTS);
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      // Un arreglo vacío es válido: significa "empezar desde cero".
-      return normalizeProjects(parsed as Project[]);
+    const ownRaw = localStorage.getItem(storageKey);
+    if (ownRaw) {
+      const parsed = JSON.parse(ownRaw);
+      if (Array.isArray(parsed)) return normalizeProjects(parsed as Project[]);
     }
-    return normalizeProjects(SEED_PROJECTS);
+
+    // Primera cuenta en este navegador: hereda la caché del espacio antiguo,
+    // una sola vez, para no mezclar datos entre usuarios.
+    const legacyClaimed =
+      localStorage.getItem(LEGACY_CACHE_CLAIMED_KEY) === 'true';
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!legacyClaimed && legacyRaw) {
+      const parsed = JSON.parse(legacyRaw);
+      if (Array.isArray(parsed)) {
+        localStorage.setItem(storageKey, legacyRaw);
+        localStorage.setItem(LEGACY_CACHE_CLAIMED_KEY, 'true');
+        return normalizeProjects(parsed as Project[]);
+      }
+    }
+
+    return [];
   } catch {
-    return normalizeProjects(SEED_PROJECTS);
+    return [];
   }
 }
 
-export default function App() {
-  const [projects, setProjects] = useState<Project[]>(loadInitialProjects);
+export default function App({ user }: { user: CurrentUser }) {
+  const storageKey = useMemo(() => storageKeyForUser(user.id), [user.id]);
+  const safeUsername =
+    user.username.replace(/[^a-zA-Z0-9._-]/g, '') || user.id.slice(0, 8);
+  const localFileName = `Datos BitCode - ${safeUsername}.json`;
+  const initialProjects = useMemo(
+    () => loadInitialProjects(storageKey),
+    [storageKey],
+  );
+
+  const [projects, setProjects] = useState<Project[]>(initialProjects);
   const [activeProjectId, setActiveProjectId] = useState<string>(
-    () => loadInitialProjects()[0]?.id ?? '',
+    initialProjects[0]?.id ?? '',
   );
   const [expandedProjectIds, setExpandedProjectIds] = useState<Set<string>>(
-    () => new Set(loadInitialProjects()[0]?.id ? [loadInitialProjects()[0].id] : []),
+    () => new Set(initialProjects[0]?.id ? [initialProjects[0].id] : []),
   );
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(
-    () => loadInitialProjects()[0]?.modules[0]?.id ?? null,
+    initialProjects[0]?.modules[0]?.id ?? null,
   );
   const [activeSection, setActiveSection] = useState<WorkspaceSection>('dashboard');
   const [notebookInnerTab, setNotebookInnerTab] = useState<NotebookInnerTab>('editor');
@@ -149,6 +176,7 @@ export default function App() {
 
   // --- Sincronización con Convex ---
   const remoteProjects = useQuery(api.workspace.get);
+  const legacyStatus = useQuery(api.workspace.legacyStatus);
   const saveWorkspace = useMutation(api.workspace.save);
   const resetWorkspace = useMutation(api.workspace.reset);
   const deviceId = useMemo(getDeviceId, []);
@@ -165,11 +193,11 @@ export default function App() {
   // Copia local como caché/fallback mientras Convex responde.
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+      localStorage.setItem(storageKey, JSON.stringify(projects));
     } catch {
       // Ignore storage quota errors cleanly
     }
-  }, [projects]);
+  }, [projects, storageKey]);
 
   // Sincronización en vivo: cualquier cambio remoto se aplica al instante.
   useEffect(() => {
@@ -179,7 +207,7 @@ export default function App() {
     if (remoteProjects === null) {
       if (!hydratedFromConvex.current) {
         hydratedFromConvex.current = true;
-        const local = loadInitialProjects();
+        const local = loadInitialProjects(storageKey);
         lastSyncedPayload.current = JSON.stringify(local);
         saveWorkspace({ projects: local, deviceId }).catch((error) => {
           console.warn('No se pudo inicializar el workspace en Convex', error);
@@ -199,7 +227,7 @@ export default function App() {
     hydratedFromConvex.current = true;
     lastSyncedPayload.current = remotePayload;
     setProjects((prev) => (JSON.stringify(prev) === remotePayload ? prev : remote));
-  }, [remoteProjects, saveWorkspace, deviceId]);
+  }, [remoteProjects, saveWorkspace, deviceId, storageKey]);
 
   // Guardado con debounce cuando cambia el estado local.
   useEffect(() => {
@@ -264,7 +292,7 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      saveLocalDataFile(projects)
+      saveLocalDataFile(projects, localFileName)
         .then((saved) => {
           if (cancelled) return;
           if (saved) {
@@ -282,16 +310,16 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [projects]);
+  }, [projects, localFileName]);
 
   const handleExportData = async () => {
     try {
-      const result = await exportDataFile(projects);
+      const result = await exportDataFile(projects, localFileName);
       showDataNotice(
         'ok',
         result === 'shared'
           ? 'Copia lista. Guárdala en Archivos/Drive.'
-          : `${LOCAL_DATA_FILE_NAME} descargado.`,
+          : `${localFileName} descargado.`,
       );
     } catch (error) {
       if ((error as Error).name === 'AbortError') return;
@@ -340,7 +368,7 @@ export default function App() {
     await resetWorkspace({});
 
     try {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(storageKey);
     } catch {
       // Sin almacenamiento disponible.
     }
@@ -359,7 +387,7 @@ export default function App() {
     setActiveSection('settings');
 
     // Deja el archivo local vacío para que no reaparezcan los datos al abrir.
-    await saveLocalDataFile([]);
+    await saveLocalDataFile([], localFileName);
   };
 
   const activeProject = useMemo(
@@ -1179,9 +1207,9 @@ export default function App() {
         </div>
         <p
           className="mb-2 truncate font-mono text-[10px] text-zinc-400"
-          title={LOCAL_DATA_FILE_NAME}
+          title={localFileName}
         >
-          {LOCAL_DATA_FILE_NAME}
+          {localFileName}
         </p>
         <div className="grid grid-cols-2 gap-1.5">
           <button
@@ -1356,6 +1384,23 @@ export default function App() {
           })}
         </nav>
 
+        {legacyStatus?.canClaim && projects.length === 0 && (
+          <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:px-5">
+            <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2">
+              <span>
+                Hay un espacio de trabajo anterior listo para importar.
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveSection('settings')}
+                className="rounded-md bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-white hover:bg-amber-700"
+              >
+                Importar
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Active Workspace Viewport */}
         <main className="mx-auto w-full max-w-6xl flex-1 p-3.5 sm:p-5 lg:p-6">
           {activeSection === 'dashboard' && (
@@ -1434,7 +1479,12 @@ export default function App() {
           )}
 
           {activeSection === 'settings' && (
-            <SettingsView projects={projects} onResetAll={handleResetAll} />
+            <SettingsView
+              projects={projects}
+              user={user}
+              localFileName={localFileName}
+              onResetAll={handleResetAll}
+            />
           )}
         </main>
       </div>

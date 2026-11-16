@@ -12,6 +12,11 @@ export interface UserProfile {
   color: string;
 }
 
+export interface CurrentUser extends UserProfile {
+  id: string;
+  username: string;
+}
+
 export interface ProjectModule {
   id: string;
   name: string;

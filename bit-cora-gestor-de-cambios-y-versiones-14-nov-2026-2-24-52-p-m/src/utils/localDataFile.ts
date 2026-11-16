@@ -23,11 +23,14 @@ export interface DataFilePayload {
 
 export type ExportResult = 'shared' | 'downloaded';
 
-function serialize(projects: Project[]): string {
+function serialize(
+  projects: Project[],
+  fileName: string = LOCAL_DATA_FILE_NAME,
+): string {
   const payload: DataFilePayload = {
     app: PAYLOAD_APP,
     version: PAYLOAD_VERSION,
-    fileName: LOCAL_DATA_FILE_NAME,
+    fileName,
     savedAt: new Date().toISOString(),
     projects,
   };
@@ -41,11 +44,14 @@ function opfsAvailable(): boolean {
   );
 }
 
-async function getLocalFileHandle(create: boolean): Promise<FileSystemFileHandle | null> {
+async function getLocalFileHandle(
+  create: boolean,
+  fileName: string = LOCAL_DATA_FILE_NAME,
+): Promise<FileSystemFileHandle | null> {
   if (!opfsAvailable()) return null;
   try {
     const root = await navigator.storage.getDirectory();
-    return await root.getFileHandle(LOCAL_DATA_FILE_NAME, { create });
+    return await root.getFileHandle(fileName, { create });
   } catch {
     return null;
   }
@@ -55,12 +61,15 @@ async function getLocalFileHandle(create: boolean): Promise<FileSystemFileHandle
  * Guarda el workspace en el archivo interno `Datos BitCode.json`.
  * Es silencioso y automático: se llama en cada cambio de la app.
  */
-export async function saveLocalDataFile(projects: Project[]): Promise<boolean> {
-  const handle = await getLocalFileHandle(true);
+export async function saveLocalDataFile(
+  projects: Project[],
+  fileName: string = LOCAL_DATA_FILE_NAME,
+): Promise<boolean> {
+  const handle = await getLocalFileHandle(true, fileName);
   if (!handle) return false;
   try {
     const writable = await handle.createWritable();
-    await writable.write(serialize(projects));
+    await writable.write(serialize(projects, fileName));
     await writable.close();
     return true;
   } catch {
@@ -68,9 +77,11 @@ export async function saveLocalDataFile(projects: Project[]): Promise<boolean> {
   }
 }
 
-/** Lee el archivo interno `Datos BitCode.json` si existe. */
-export async function loadLocalDataFile(): Promise<Project[] | null> {
-  const handle = await getLocalFileHandle(false);
+/** Lee el archivo interno del usuario si existe. */
+export async function loadLocalDataFile(
+  fileName: string = LOCAL_DATA_FILE_NAME,
+): Promise<Project[] | null> {
+  const handle = await getLocalFileHandle(false, fileName);
   if (!handle) return null;
   try {
     const file = await handle.getFile();
@@ -81,11 +92,13 @@ export async function loadLocalDataFile(): Promise<Project[] | null> {
 }
 
 /** Metadatos del archivo interno (fecha de última escritura y tamaño). */
-export async function getLocalDataFileInfo(): Promise<{
+export async function getLocalDataFileInfo(
+  fileName: string = LOCAL_DATA_FILE_NAME,
+): Promise<{
   savedAt: Date;
   size: number;
 } | null> {
-  const handle = await getLocalFileHandle(false);
+  const handle = await getLocalFileHandle(false, fileName);
   if (!handle) return null;
   try {
     const file = await handle.getFile();
@@ -135,10 +148,13 @@ export function parseDataFileText(text: string): Project[] {
  * En el teléfono abre la hoja de compartir (Guardar en Archivos/Drive);
  * en escritorio descarga el archivo.
  */
-export async function exportDataFile(projects: Project[]): Promise<ExportResult> {
-  const text = serialize(projects);
+export async function exportDataFile(
+  projects: Project[],
+  fileName: string = LOCAL_DATA_FILE_NAME,
+): Promise<ExportResult> {
+  const text = serialize(projects, fileName);
   const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
-  const file = new File([blob], LOCAL_DATA_FILE_NAME, {
+  const file = new File([blob], fileName, {
     type: 'application/json',
     lastModified: Date.now(),
   });
@@ -165,7 +181,7 @@ export async function exportDataFile(projects: Project[]): Promise<ExportResult>
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = LOCAL_DATA_FILE_NAME;
+  link.download = fileName;
   link.rel = 'noopener';
   document.body.appendChild(link);
   link.click();

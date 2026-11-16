@@ -1,4 +1,5 @@
 import { v } from 'convex/values';
+import { getAuthUserId } from '@convex-dev/auth/server';
 import {
   internalMutation,
   internalQuery,
@@ -24,6 +25,9 @@ export const subscribe = mutation({
     deadlineReminders: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
     const now = new Date().toISOString();
     const existing = await ctx.db
       .query('pushSubscriptions')
@@ -31,12 +35,13 @@ export const subscribe = mutation({
       .first();
 
     if (existing) {
-      await ctx.db.patch(existing._id, { ...args, updatedAt: now });
+      await ctx.db.patch(existing._id, { ...args, userId, updatedAt: now });
       return existing._id;
     }
 
     return await ctx.db.insert('pushSubscriptions', {
       ...args,
+      userId,
       createdAt: now,
       updatedAt: now,
     });
@@ -50,11 +55,14 @@ export const updatePreferences = mutation({
     deadlineReminders: v.boolean(),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
     const existing = await ctx.db
       .query('pushSubscriptions')
       .withIndex('by_endpoint', (q) => q.eq('endpoint', args.endpoint))
       .first();
-    if (!existing) return null;
+    if (!existing || existing.userId !== userId) return null;
 
     await ctx.db.patch(existing._id, {
       moduleIds: args.moduleIds,
@@ -68,11 +76,16 @@ export const updatePreferences = mutation({
 export const unsubscribe = mutation({
   args: { endpoint: v.string() },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
     const existing = await ctx.db
       .query('pushSubscriptions')
       .withIndex('by_endpoint', (q) => q.eq('endpoint', args.endpoint))
       .first();
-    if (existing) await ctx.db.delete(existing._id);
+    if (existing && existing.userId === userId) {
+      await ctx.db.delete(existing._id);
+    }
     return null;
   },
 });
@@ -80,11 +93,16 @@ export const unsubscribe = mutation({
 export const sendTest = mutation({
   args: { endpoint: v.string() },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
     const existing = await ctx.db
       .query('pushSubscriptions')
       .withIndex('by_endpoint', (q) => q.eq('endpoint', args.endpoint))
       .first();
-    if (!existing) throw new Error('Este dispositivo no está suscrito.');
+    if (!existing || existing.userId !== userId) {
+      throw new Error('Este dispositivo no está suscrito.');
+    }
 
     await ctx.scheduler.runAfter(0, internal.push.sendTestPush, {
       endpoint: args.endpoint,
@@ -120,13 +138,8 @@ export const removeByEndpoint = internalMutation({
   },
 });
 
-export const getProjects = internalQuery({
+/** Espacios de trabajo de todos los usuarios, para los recordatorios diarios. */
+export const listWorkspaces = internalQuery({
   args: {},
-  handler: async (ctx) => {
-    const doc = await ctx.db
-      .query('workspace')
-      .withIndex('by_key', (q) => q.eq('key', 'main'))
-      .first();
-    return doc?.projects ?? null;
-  },
+  handler: async (ctx) => await ctx.db.query('workspace').collect(),
 });

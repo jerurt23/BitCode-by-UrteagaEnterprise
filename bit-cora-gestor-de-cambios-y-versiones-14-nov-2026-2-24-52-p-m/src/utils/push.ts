@@ -11,9 +11,15 @@ export interface NotificationPreferences {
 
 const PREFS_KEY = 'bitcode_notification_prefs_v1';
 
-export function loadNotificationPreferences(): NotificationPreferences | null {
+function prefsKey(scope?: string): string {
+  return scope ? `${PREFS_KEY}:${scope}` : PREFS_KEY;
+}
+
+export function loadNotificationPreferences(
+  scope?: string,
+): NotificationPreferences | null {
   try {
-    const raw = localStorage.getItem(PREFS_KEY);
+    const raw = localStorage.getItem(prefsKey(scope));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<NotificationPreferences>;
     if (!Array.isArray(parsed.moduleIds)) return null;
@@ -26,9 +32,12 @@ export function loadNotificationPreferences(): NotificationPreferences | null {
   }
 }
 
-export function saveNotificationPreferences(prefs: NotificationPreferences): void {
+export function saveNotificationPreferences(
+  prefs: NotificationPreferences,
+  scope?: string,
+): void {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    localStorage.setItem(prefsKey(scope), JSON.stringify(prefs));
   } catch {
     // Sin almacenamiento disponible; las preferencias quedan en memoria.
   }

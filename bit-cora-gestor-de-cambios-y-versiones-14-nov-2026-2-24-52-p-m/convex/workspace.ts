@@ -1,8 +1,7 @@
-import { mutation, query } from './_generated/server';
 import { v } from 'convex/values';
+import { getAuthUserId } from '@convex-dev/auth/server';
+import { mutation, query } from './_generated/server';
 import { internal } from './_generated/api';
-
-const WORKSPACE_KEY = 'main';
 
 type ModuleChange = {
   moduleId: string;
@@ -45,12 +44,109 @@ function collectChangedModules(
   return changes.slice(0, 20);
 }
 
+/**
+ * Prepara el espacio de trabajo del usuario.
+ * El primer usuario que entra hereda los datos del espacio antiguo (`main`).
+ */
+export const ensureForUser = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
+    const own = await ctx.db
+      .query('workspace')
+      .withIndex('by_key', (q) => q.eq('key', userId))
+      .first();
+    if (own) return own._id;
+
+    return await ctx.db.insert('workspace', {
+      key: userId,
+      projects: [],
+      updatedAt: new Date().toISOString(),
+    });
+  },
+});
+
+/** Indica si existe el espacio antiguo (`main`) pendiente de importar. */
+export const legacyStatus = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+
+    const legacy = await ctx.db
+      .query('workspace')
+      .withIndex('by_key', (q) => q.eq('key', 'main'))
+      .first();
+    const own = await ctx.db
+      .query('workspace')
+      .withIndex('by_key', (q) => q.eq('key', userId))
+      .first();
+
+    const ownHasProjects =
+      Array.isArray(own?.projects) && own.projects.length > 0;
+
+    return {
+      hasLegacy: Boolean(legacy),
+      canClaim: Boolean(legacy) && !ownHasProjects,
+    };
+  },
+});
+
+/**
+ * Importa el espacio antiguo a la cuenta actual. Requiere el código privado
+ * configurado en LEGACY_CLAIM_CODE para que un visitante no pueda reclamarlo.
+ */
+export const claimLegacy = mutation({
+  args: { code: v.string() },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
+    const expected = process.env.LEGACY_CLAIM_CODE;
+    if (!expected || args.code.trim() !== expected) {
+      throw new Error('Código de importación incorrecto.');
+    }
+
+    const legacy = await ctx.db
+      .query('workspace')
+      .withIndex('by_key', (q) => q.eq('key', 'main'))
+      .first();
+    if (!legacy) throw new Error('No hay un espacio anterior para importar.');
+
+    const own = await ctx.db
+      .query('workspace')
+      .withIndex('by_key', (q) => q.eq('key', userId))
+      .first();
+    if (own && Array.isArray(own.projects) && own.projects.length > 0) {
+      throw new Error('Tu espacio ya tiene datos.');
+    }
+
+    const now = new Date().toISOString();
+    if (own) {
+      await ctx.db.patch(own._id, {
+        projects: legacy.projects,
+        updatedAt: now,
+      });
+      await ctx.db.delete(legacy._id);
+    } else {
+      await ctx.db.patch(legacy._id, { key: userId, updatedAt: now });
+    }
+
+    return null;
+  },
+});
+
 export const get = query({
   args: {},
   handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) return null;
+
     const doc = await ctx.db
       .query('workspace')
-      .withIndex('by_key', (q) => q.eq('key', WORKSPACE_KEY))
+      .withIndex('by_key', (q) => q.eq('key', userId))
       .first();
     return doc?.projects ?? null;
   },
@@ -62,16 +158,18 @@ export const save = mutation({
     deviceId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
     const doc = await ctx.db
       .query('workspace')
-      .withIndex('by_key', (q) => q.eq('key', WORKSPACE_KEY))
+      .withIndex('by_key', (q) => q.eq('key', userId))
       .first();
     const updatedAt = new Date().toISOString();
 
     if (doc) {
       await ctx.db.patch(doc._id, { projects: args.projects, updatedAt });
 
-      // Avisa a los otros dispositivos suscritos a estos módulos.
       const changes = collectChangedModules(doc.projects, args.projects);
       if (changes.length > 0) {
         await ctx.scheduler.runAfter(
@@ -80,6 +178,7 @@ export const save = mutation({
           {
             changes,
             originDeviceId: args.deviceId,
+            ownerUserId: userId,
           },
         );
       }
@@ -88,71 +187,42 @@ export const save = mutation({
     }
 
     return await ctx.db.insert('workspace', {
-      key: WORKSPACE_KEY,
+      key: userId,
       projects: args.projects,
       updatedAt,
     });
   },
 });
 
-export const getProfile = query({
-  args: {},
-  handler: async (ctx) => {
-    const doc = await ctx.db
-      .query('workspace')
-      .withIndex('by_key', (q) => q.eq('key', WORKSPACE_KEY))
-      .first();
-    return doc?.profile ?? null;
-  },
-});
-
-export const saveProfile = mutation({
-  args: {
-    profile: v.object({
-      name: v.string(),
-      email: v.string(),
-      color: v.string(),
-    }),
-  },
-  handler: async (ctx, args) => {
-    const doc = await ctx.db
-      .query('workspace')
-      .withIndex('by_key', (q) => q.eq('key', WORKSPACE_KEY))
-      .first();
-    const updatedAt = new Date().toISOString();
-
-    if (doc) {
-      await ctx.db.patch(doc._id, { profile: args.profile, updatedAt });
-      return doc._id;
-    }
-
-    return await ctx.db.insert('workspace', {
-      key: WORKSPACE_KEY,
-      projects: [],
-      profile: args.profile,
-      updatedAt,
-    });
-  },
-});
-
 /**
- * Borra todos los proyectos y el perfil, dejando el espacio de trabajo vacío.
- * Las suscripciones de notificaciones del dispositivo se conservan.
+ * Borra todos los proyectos y módulos del usuario, pero conserva su cuenta,
+ * su perfil y sus suscripciones de notificaciones.
  */
 export const reset = mutation({
   args: {},
   handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx);
+    if (userId === null) throw new Error('No autenticado');
+
     const doc = await ctx.db
       .query('workspace')
-      .withIndex('by_key', (q) => q.eq('key', WORKSPACE_KEY))
+      .withIndex('by_key', (q) => q.eq('key', userId))
       .first();
+    const updatedAt = new Date().toISOString();
 
-    if (!doc) return null;
+    if (!doc) {
+      await ctx.db.insert('workspace', {
+        key: userId,
+        projects: [],
+        updatedAt,
+      });
+      return null;
+    }
 
     await ctx.db.replace(doc._id, {
-      key: WORKSPACE_KEY,
+      key: userId,
       projects: [],
-      updatedAt: new Date().toISOString(),
+      updatedAt,
     });
 
     return null;

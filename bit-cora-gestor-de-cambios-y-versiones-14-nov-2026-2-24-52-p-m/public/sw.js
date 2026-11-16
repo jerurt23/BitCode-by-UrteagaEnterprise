@@ -1,5 +1,5 @@
 /* Service worker de BitCode: app instalable y disponible sin conexión. */
-const CACHE_NAME = 'bitcode-shell-v2';
+const CACHE_NAME = 'bitcode-shell-v3';
 const SCOPE_URL = new URL('./', self.location).href;
 
 self.addEventListener('install', (event) => {

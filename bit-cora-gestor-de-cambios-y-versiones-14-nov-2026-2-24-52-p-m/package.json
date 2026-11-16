@@ -13,6 +13,7 @@
     "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
+    "@convex-dev/auth": "^2.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@vitejs/plugin-react": "^6.1.1",
     "convex": "^1.50.0",
