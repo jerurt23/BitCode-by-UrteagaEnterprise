@@ -12,9 +12,12 @@ export interface UserProfile {
   color: string;
 }
 
+export type UserRole = 'superadmin' | 'user';
+
 export interface CurrentUser extends UserProfile {
   id: string;
   username: string;
+  role: UserRole;
 }
 
 export interface ProjectModule {

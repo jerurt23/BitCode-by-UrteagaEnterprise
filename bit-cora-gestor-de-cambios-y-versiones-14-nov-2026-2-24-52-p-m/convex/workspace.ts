@@ -84,12 +84,9 @@ export const legacyStatus = query({
       .withIndex('by_key', (q) => q.eq('key', userId))
       .first();
 
-    const ownHasProjects =
-      Array.isArray(own?.projects) && own.projects.length > 0;
-
     return {
       hasLegacy: Boolean(legacy),
-      canClaim: Boolean(legacy) && !ownHasProjects,
+      canClaim: Boolean(legacy),
     };
   },
 });
@@ -119,14 +116,29 @@ export const claimLegacy = mutation({
       .query('workspace')
       .withIndex('by_key', (q) => q.eq('key', userId))
       .first();
-    if (own && Array.isArray(own.projects) && own.projects.length > 0) {
-      throw new Error('Tu espacio ya tiene datos.');
-    }
-
     const now = new Date().toISOString();
+
     if (own) {
+      // Se agregan a lo que ya exista, sin pisar proyectos con el mismo id.
+      const ownProjects = Array.isArray(own.projects) ? own.projects : [];
+      const legacyProjects = Array.isArray(legacy.projects)
+        ? legacy.projects
+        : [];
+      const existingIds = new Set(
+        ownProjects
+          .map((project: { id?: unknown }) => project?.id)
+          .filter((id: unknown): id is string => typeof id === 'string'),
+      );
+      const merged = [
+        ...ownProjects,
+        ...legacyProjects.filter(
+          (project: { id?: unknown }) =>
+            typeof project?.id !== 'string' || !existingIds.has(project.id),
+        ),
+      ];
+
       await ctx.db.patch(own._id, {
-        projects: legacy.projects,
+        projects: merged,
         updatedAt: now,
       });
       await ctx.db.delete(legacy._id);

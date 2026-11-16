@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { api } from '../../convex/_generated/api';
 import { CurrentUser, Project, UserProfile } from '../types/workspace';
+import { SuperAdminPanel } from './SuperAdminPanel';
 import { formatShortDate } from '../utils/projectHelpers';
 import {
   getDeviceId,
@@ -437,6 +438,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           <span className="font-mono text-[11px] text-zinc-400">
             @{user.username}
           </span>
+          {user.role === 'superadmin' && (
+            <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-700">
+              Superadmin
+            </span>
+          )}
           <button
             type="button"
             onClick={handleSignOut}
@@ -639,6 +645,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         </form>
       </section>
 
+      {user.role === 'superadmin' && (
+        <SuperAdminPanel currentUserId={user.id} />
+      )}
+
       {/* Importar espacio anterior */}
       {legacyStatus?.canClaim && (
         <section className="rounded-lg border border-amber-200 bg-amber-50/60">
@@ -653,7 +663,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <p className="text-xs text-amber-800">
               Encontramos tus proyectos anteriores. Introduce el código privado
-              para traerlos a esta cuenta.
+              para agregarlos a tu espacio actual.
             </p>
             <div className="flex flex-wrap items-center gap-2">
               <input

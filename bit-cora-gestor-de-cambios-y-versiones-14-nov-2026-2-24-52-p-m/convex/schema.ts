@@ -6,7 +6,11 @@ export default defineSchema({
     name: v.optional(v.string()),
     email: v.optional(v.string()),
     color: v.optional(v.string()),
+    role: v.optional(
+      v.union(v.literal('superadmin'), v.literal('user')),
+    ),
     createdAt: v.optional(v.string()),
+    lastSignInAt: v.optional(v.string()),
   }),
   workspace: defineTable({
     // userId del dueño del espacio de trabajo (o 'main' en datos antiguos).

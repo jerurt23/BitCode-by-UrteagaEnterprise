@@ -1384,7 +1384,7 @@ export default function App({ user }: { user: CurrentUser }) {
           })}
         </nav>
 
-        {legacyStatus?.canClaim && projects.length === 0 && (
+        {legacyStatus?.canClaim && (
           <div className="border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:px-5">
             <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center justify-between gap-2">
               <span>

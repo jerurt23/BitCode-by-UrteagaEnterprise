@@ -53,6 +53,9 @@ servicio.
   `Datos BitCode - <usuario>.json`.
 - El perfil (nombre, correo de contacto, color), el cambio de contraseña y el
   cierre de sesión están en **Configuración → Mi cuenta**.
+- El **superadmin** ve en Configuración todos los usuarios registrados, puede
+  cambiar sus nombres de usuario y restablecer contraseñas. Las contraseñas
+  están hasheadas: nadie puede verlas, solo reemplazarlas.
 
 > La colaboración entre usuarios (invitaciones por enlace/código, roles
 > propietario/editor/lector y espacios compartidos) es la siguiente fase.
