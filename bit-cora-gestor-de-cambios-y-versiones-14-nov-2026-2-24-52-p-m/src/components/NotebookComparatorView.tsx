@@ -30,6 +30,10 @@ import {
 } from '../utils/projectHelpers';
 import { BulletNoteEditor } from './BulletNoteEditor';
 import { HistoryDiffView } from './HistoryDiffView';
+import {
+  NewModuleModal,
+  NewModuleNoteCandidate,
+} from './NewModuleModal';
 import { ProgressCircle } from './ProgressCircle';
 import { SplitDiffViewer } from './SplitDiffViewer';
 
@@ -69,7 +73,7 @@ interface NotebookComparatorViewProps {
   onCreateModuleFromNotes: (params: {
     sourceModuleId: string;
     name: string;
-    mode: 'reunion' | 'idea';
+    mode: 'reunion' | 'idea' | 'manual';
     lines: string[];
     commitMessage: string;
   }) => ProjectModule | null;
@@ -120,6 +124,10 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   const [newModuleName, setNewModuleName] = useState('');
   const [showCommitMessage, setShowCommitMessage] = useState(false);
   const [createdModuleId, setCreatedModuleId] = useState<string | null>(null);
+  const [newModuleModalOpen, setNewModuleModalOpen] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(
+    new Set(),
+  );
 
   useEffect(() => {
     if (activeModule) {
@@ -128,6 +136,8 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     setDestinationModuleId('source');
     setNewModuleName('');
     setCreatedModuleId(null);
+    setNewModuleModalOpen(false);
+    setSelectedNoteIds(new Set());
   }, [activeModule?.id]);
 
   // Los avisos desaparecen solos para no llenar la pantalla en el teléfono.
@@ -201,6 +211,48 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     [diffRows, selectedRowIds],
   );
 
+  // Notas nuevas de Reunión e Idea que se pueden llevar a un módulo nuevo.
+  const newModuleCandidates = useMemo<NewModuleNoteCandidate[]>(() => {
+    if (!activeModule) return [];
+
+    const collect = (
+      mode: 'reunion' | 'idea',
+      text: string,
+    ): NewModuleNoteCandidate[] => {
+      if (!text.trim()) return [];
+      return computeSplitDiff(activeModule.currentNote, text)
+        .filter(
+          (row) =>
+            row.kind !== 'unchanged' &&
+            row.rightText !== null &&
+            row.rightText.trim().length > 0,
+        )
+        .map((row) => ({
+          id: `${mode}-${row.id}`,
+          mode,
+          kind: row.kind as 'added' | 'replaced',
+          text: row.rightText as string,
+        }));
+    };
+
+    const all = [
+      ...collect('reunion', activeModule.meetingNote),
+      ...collect('idea', activeModule.ideaNote),
+    ];
+    const seen = new Set<string>();
+    return all.filter((note) => {
+      const key = note.text.trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [
+    activeModule?.id,
+    activeModule?.currentNote,
+    activeModule?.meetingNote,
+    activeModule?.ideaNote,
+  ]);
+
   useEffect(() => {
     const allChangeIds = new Set(
       diffRows.filter((r) => r.kind !== 'unchanged').map((r) => r.id),
@@ -261,6 +313,56 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
     );
   };
 
+  const openNewModuleModal = () => {
+    setNewModuleName('');
+    setSelectedNoteIds(new Set(newModuleCandidates.map((note) => note.id)));
+    setNewModuleModalOpen(true);
+  };
+
+  const toggleNoteForNewModule = (noteId: string) => {
+    setSelectedNoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(noteId)) next.delete(noteId);
+      else next.add(noteId);
+      return next;
+    });
+  };
+
+  const handleCreateNewModule = () => {
+    if (!activeModule) return;
+    const name = newModuleName.trim();
+    const selected = newModuleCandidates.filter((note) =>
+      selectedNoteIds.has(note.id),
+    );
+    if (!name || selected.length === 0) return;
+
+    const modes = new Set(selected.map((note) => note.mode));
+    const mode =
+      modes.size === 1 ? (Array.from(modes)[0] as 'reunion' | 'idea') : 'manual';
+
+    const created = onCreateModuleFromNotes({
+      sourceModuleId: activeModule.id,
+      name,
+      mode,
+      lines: selected.map((note) => note.text),
+      commitMessage: commitMessage.trim() || `Notas nuevas → ${name}`,
+    });
+    if (!created) {
+      setLastSavedNotice('No se pudo crear el módulo.');
+      return;
+    }
+
+    setNewModuleModalOpen(false);
+    setNewModuleName('');
+    setSelectedNoteIds(new Set());
+    setCommitMessage('');
+    setDestinationModuleId('source');
+    setCreatedModuleId(created.id);
+    setLastSavedNotice(
+      `Módulo "${created.name}" creado con ${selected.length} nota(s).`,
+    );
+  };
+
   const handleApplyChecked = () => {
     if (!activeModule) return;
     const modeLabel =
@@ -292,43 +394,9 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
       return;
     }
 
-    // 2) Crear un módulo nuevo con las notas seleccionadas.
+    // 2) Crear un módulo nuevo: se eligen notas de Reunión e Idea en el modal.
     if (destinationModuleId === 'new') {
-      const name = newModuleName.trim();
-      if (!name) {
-        setLastSavedNotice('Escribe el nombre del nuevo módulo.');
-        return;
-      }
-      if (selectedIncomingLines.length === 0) {
-        setLastSavedNotice(
-          'Selecciona notas nuevas de la propuesta para llevarlas al módulo nuevo.',
-        );
-        return;
-      }
-
-      const created = onCreateModuleFromNotes({
-        sourceModuleId: activeModule.id,
-        name,
-        mode: compareSideMode,
-        lines: selectedIncomingLines,
-        commitMessage:
-          commitMessage.trim() ||
-          `Notas de ${modeLabel} → nuevo módulo ${name}`,
-      });
-
-      if (!created) {
-        setLastSavedNotice('No se pudo crear el módulo con esas notas.');
-        return;
-      }
-
-      setSelectedRowIds(new Set());
-      setCommitMessage('');
-      setNewModuleName('');
-      setDestinationModuleId('source');
-      setCreatedModuleId(created.id);
-      setLastSavedNotice(
-        `Módulo "${created.name}" creado con ${selectedIncomingLines.length} nota(s).`,
-      );
+      openNewModuleModal();
       return;
     }
 
@@ -410,7 +478,9 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
   const routeCount =
     destinationModuleId === 'source'
       ? selectedRowIds.size
-      : selectedIncomingLines.length;
+      : destinationModuleId === 'new'
+        ? newModuleCandidates.length
+        : selectedIncomingLines.length;
 
   const diffSummary =
     [
@@ -931,29 +1001,31 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                   <span className="font-mono text-[11px] text-zinc-500">
                     {diffSummary || 'Sin cambios'}
                   </span>
-                  <div className="flex items-center gap-2 text-[10px] font-medium">
-                    <button
-                      type="button"
-                      onClick={selectAllChanges}
-                      className="text-zinc-500 hover:text-zinc-900"
-                    >
-                      Todas
-                    </button>
-                    <button
-                      type="button"
-                      onClick={selectNewChanges}
-                      className="text-blue-600 hover:text-blue-700"
-                    >
-                      Nuevas
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearAllChanges}
-                      className="text-zinc-500 hover:text-zinc-900"
-                    >
-                      Ninguna
-                    </button>
-                  </div>
+                  {destinationModuleId !== 'new' && (
+                    <div className="flex items-center gap-2 text-[10px] font-medium">
+                      <button
+                        type="button"
+                        onClick={selectAllChanges}
+                        className="text-zinc-500 hover:text-zinc-900"
+                      >
+                        Todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={selectNewChanges}
+                        className="text-blue-600 hover:text-blue-700"
+                      >
+                        Nuevas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearAllChanges}
+                        className="text-zinc-500 hover:text-zinc-900"
+                      >
+                        Ninguna
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -977,17 +1049,6 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                     <option value="new">+ Nuevo módulo…</option>
                   </select>
 
-                  {destinationModuleId === 'new' && (
-                    <input
-                      type="text"
-                      value={newModuleName}
-                      onChange={(e) => setNewModuleName(e.target.value)}
-                      aria-label="Nombre del nuevo módulo"
-                      placeholder="Nombre del nuevo módulo"
-                      className="w-full rounded-md border border-zinc-300 bg-white px-3 py-1.5 text-xs text-zinc-900 focus:border-blue-600 focus:outline-none sm:w-44"
-                    />
-                  )}
-
                   <div className="flex w-full items-center gap-2 sm:w-auto">
                     <button
                       type="button"
@@ -1008,17 +1069,23 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                     />
                     <button
                       type="button"
-                      onClick={handleApplyChecked}
-                      disabled={
-                        routeCount === 0 ||
-                        totalChanges === 0 ||
-                        (destinationModuleId === 'new' &&
-                          !newModuleName.trim())
+                      onClick={
+                        destinationModuleId === 'new'
+                          ? openNewModuleModal
+                          : handleApplyChecked
+                      }
+                      disabled={routeCount === 0 || totalChanges === 0}
+                      title={
+                        destinationModuleId === 'new'
+                          ? 'Elegir notas de Reunión e Idea para el módulo nuevo'
+                          : undefined
                       }
                       className="inline-flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-zinc-300 whitespace-nowrap sm:w-auto"
                     >
                       {destinationModuleId === 'source' ? (
                         <Check className="h-3.5 w-3.5" />
+                      ) : destinationModuleId === 'new' ? (
+                        <Plus className="h-3.5 w-3.5" />
                       ) : (
                         <Send className="h-3.5 w-3.5" />
                       )}
@@ -1040,7 +1107,7 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
                     ? 'Modo Reunión (Propuesta)'
                     : 'Modo Idea (Propuesta)'
                 }
-                interactive
+                interactive={destinationModuleId !== 'new'}
                 selectedRowIds={selectedRowIds}
                 onToggleRow={toggleRow}
               />
@@ -1183,6 +1250,23 @@ export const NotebookComparatorView: React.FC<NotebookComparatorViewProps> = ({
           )}
         </>
       )}
+
+      <NewModuleModal
+        isOpen={newModuleModalOpen}
+        name={newModuleName}
+        onNameChange={setNewModuleName}
+        candidates={newModuleCandidates}
+        selectedIds={selectedNoteIds}
+        onToggleNote={toggleNoteForNewModule}
+        onSelectAll={() =>
+          setSelectedNoteIds(
+            new Set(newModuleCandidates.map((note) => note.id)),
+          )
+        }
+        onSelectNone={() => setSelectedNoteIds(new Set())}
+        onClose={() => setNewModuleModalOpen(false)}
+        onConfirm={handleCreateNewModule}
+      />
     </div>
   );
 };

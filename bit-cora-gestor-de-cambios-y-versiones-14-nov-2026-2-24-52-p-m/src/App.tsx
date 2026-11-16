@@ -797,7 +797,7 @@ export default function App() {
   const handleCreateModuleFromNotes = (params: {
     sourceModuleId: string;
     name: string;
-    mode: 'reunion' | 'idea';
+    mode: 'reunion' | 'idea' | 'manual';
     lines: string[];
     commitMessage: string;
   }): ProjectModule | null => {
